@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Claim Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Arial;background:#f5f8fc;color:#10233f}
+.wrap{max-width:1200px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.brand{font-size:22px;font-weight:800}.online{font-size:12px;background:#dcfce7;color:#166534;padding:7px 10px;border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:white;border:1px solid #dce5f0;border-radius:16px;padding:16px;box-shadow:0 4px 14px #10233f0d}
+.label{font-size:12px;color:#64748b}.num{font-size:25px;font-weight:800;margin-top:5px}
+.nav{display:flex;gap:8px;overflow:auto;margin-bottom:16px}.nav button,.action{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:10px 13px;font-weight:700;cursor:pointer}
+.nav button.active,.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+.panel{margin-top:14px}.panel h2{margin:0 0 12px;font-size:17px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px;border-bottom:1px solid #e2e8f0;font-size:13px}
+.badge{padding:5px 8px;border-radius:999px;font-size:11px;font-weight:800}.pending{background:#fff7ed;color:#9a3412}.processing{background:#dbeafe;color:#1d4ed8}.paid{background:#dcfce7;color:#166534}.rejected{background:#fee2e2;color:#991b1b}
+.actions{display:flex;gap:6px;flex-wrap:wrap}.danger{color:#b91c1c}.success{color:#166534}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}th:nth-child(2),td:nth-child(2){display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><div class="brand">QR Claim Admin</div><div class="online">● System Online</div></div>
+<div class="nav">
+<button class="active" data-tab="dashboard">📊 Dashboard</button><button data-tab="withdrawals">💸 Withdrawals</button>
+<button data-tab="claims">🎯 Claims</button><button data-tab="qr">💳 QR</button><button data-tab="users">👥 Users</button><button data-tab="settings">⚙️ Settings</button>
+</div>
+
+<section id="dashboard">
+<div class="grid">
+<div class="card"><div class="label">Total Users</div><div class="num" id="users">—</div></div>
+<div class="card"><div class="label">Total Claims</div><div class="num" id="claims">—</div></div>
+<div class="card"><div class="label">Total Withdrawals</div><div class="num" id="withdrawals">—</div></div>
+<div class="card"><div class="label">Total Paid</div><div class="num" id="paid">—</div></div>
+<div class="card"><div class="label">Pending Claims</div><div class="num" id="pendingClaims">—</div></div>
+<div class="card"><div class="label">Pending Withdrawals</div><div class="num" id="pendingWd">—</div></div>
+<div class="card"><div class="label">Processing</div><div class="num" id="processing">—</div></div>
+<div class="card"><div class="label">Rejected</div><div class="num" id="rejected">—</div></div>
+</div>
+<div class="panel"><h2>Quick actions</h2><div class="actions">
+<button class="action primary" onclick="showTab('withdrawals')">💸 Manage Withdrawals</button>
+<button class="action" onclick="showTab('claims')">🎯 Review Claims</button>
+<button class="action" onclick="showTab('users')">👥 Manage Users</button>
+</div></div>
+</section>
+
+<section id="withdrawals" hidden><div class="panel"><h2>💸 Withdrawal Management</h2><div id="wdTable">Loading…</div></div></section>
+<section id="claims" hidden><div class="panel"><h2>🎯 Claim Management</h2><p>Claim review controls are available from the bot admin panel. This dashboard endpoint can be extended with proof previews and filters.</p></div></section>
+<section id="qr" hidden><div class="panel"><h2>💳 QR Management</h2><p>QR campaign management remains available through the bot admin panel.</p></div></section>
+<section id="users" hidden><div class="panel"><h2>👥 User Management</h2><p>User search and account controls can be connected to the same API/database.</p></div></section>
+<section id="settings" hidden><div class="panel"><h2>⚙️ Settings</h2><p>Configure force join, withdrawal methods, minimum withdrawal and other bot settings from the bot admin panel.</p></div></section>
+</div>
+<script>
+const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
+async function api(path,opts){const r=await fetch(path,opts);if(!r.ok)throw new Error(await r.text());return r.json()}
+function showTab(id){document.querySelectorAll('section').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===id))}
+document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+async function load(){
+ try{
+  const s=await api('/api/admin/stats');
+  for(const [k,v] of Object.entries({users:s.users,claims:s.claims,withdrawals:s.withdrawals,paid:money(s.paid_amount),pendingClaims:s.pending_claims,pendingWd:s.pending_withdrawals,processing:s.processing,rejected:s.rejected})) document.getElementById(k).textContent=v;
+  const rows=await api('/api/admin/withdrawals');
+  document.getElementById('wdTable').innerHTML='<div style="overflow:auto"><table><thead><tr><th>ID</th><th>User</th><th>Amount</th><th>Method</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
+  rows.map(x=>`<tr><td>#${x.id}</td><td>${x.user_id}</td><td>${money(x.amount)}</td><td>${x.method}</td><td><span class="badge ${x.status}">${x.status.toUpperCase()}</span></td><td class="actions">${x.status==='pending'?`<button class="action" onclick="status(${x.id},'processing')">⚙️ Processing</button>`:''}${x.status==='processing'?`<button class="action success" onclick="status(${x.id},'paid')">🟢 Paid</button>`:''}${['pending','processing'].includes(x.status)?`<button class="action danger" onclick="status(${x.id},'rejected')">🔴 Reject</button>`:''}</td></tr>`).join('')+'</tbody></table></div>';
+ }catch(e){console.error(e)}
+}
+async function status(id,status){await api('/api/admin/withdrawals/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load()}
+load();setInterval(load,15000);
+</script>
+</body></html>
