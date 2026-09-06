@@ -1,68 +1,50 @@
+
 <!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>QR Claim Admin</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:#07111f;--card:#0f1d31;--muted:#9db0c9;--text:#f4f7fb;--blue:#1687ff;--green:#16b878;--red:#e5484d;--line:#20324b;--yellow:#e6a23c}
+:root{--bg:#07111f;--card:#0f1d31;--muted:#9db0c9;--text:#f4f7fb;--blue:#1687ff;--green:#16b878;--red:#e5484d;--line:#20324b}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#07111f,#0b1627);color:var(--text)}
-.wrap{max-width:1100px;margin:auto;padding:16px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.title{font-size:24px;font-weight:800}.sub,.meta,.status{color:var(--muted);font-size:13px}.btn{border:0;border-radius:11px;padding:11px 14px;font-weight:750;color:#fff;background:var(--blue);cursor:pointer}.btn.green{background:var(--green)}.btn.red{background:var(--red)}.btn.gray{background:#26364d}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:rgba(15,29,49,.96);border:1px solid var(--line);border-radius:16px;padding:15px;box-shadow:0 8px 24px #0003}.label{color:var(--muted);font-size:12px}.num{font-size:24px;font-weight:850;margin-top:5px}.section{margin-top:15px}.section h2{font-size:18px;margin:0 0 11px}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--line)}.row:first-child{border-top:0}.actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.empty{color:var(--muted);padding:16px;text-align:center}.form{display:grid;grid-template-columns:1fr 1fr 1.5fr auto;gap:8px}.input{width:100%;background:#091526;color:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;outline:none}.two{display:grid;grid-template-columns:1fr 1fr;gap:15px}.pill{display:inline-block;padding:5px 9px;border-radius:999px;background:#152b45;font-size:12px}.ok{color:#52d49a}.bad{color:#ff7478}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}.form,.two{grid-template-columns:1fr}.row{align-items:flex-start;flex-direction:column}.actions{justify-content:flex-start}.top{align-items:flex-start}}
-</style></head>
+.wrap{max-width:980px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.title{font-size:24px;font-weight:800}.sub{color:var(--muted);font-size:13px;margin-top:3px}
+.btn{border:0;border-radius:12px;padding:11px 14px;font-weight:700;color:#fff;background:var(--blue);cursor:pointer}.btn.red{background:var(--red)}.btn.green{background:var(--green)}.btn.gray{background:#26364d}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:rgba(15,29,49,.95);border:1px solid var(--line);border-radius:16px;padding:15px;box-shadow:0 8px 24px #0003}.label{color:var(--muted);font-size:12px}.num{font-size:25px;font-weight:800;margin-top:5px}
+.section{margin-top:18px}.section h2{font-size:18px;margin:0 0 10px}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 0;border-top:1px solid var(--line)}.row:first-child{border-top:0}.meta{color:var(--muted);font-size:13px;line-height:1.5}.actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.empty{color:var(--muted);padding:18px;text-align:center}.form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px}.input{width:100%;background:#091526;color:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;outline:none}.status{margin:10px 0;color:var(--muted);font-size:13px}
+@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.top{align-items:flex-start}.actions{justify-content:flex-start}.row{align-items:flex-start;flex-direction:column}}
+</style>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
 <body><div class="wrap">
 <div class="top"><div><div class="title">🛠 QR Claim Admin</div><div class="sub" id="who">Connecting to Telegram…</div></div><button class="btn gray" onclick="loadAll()">↻ Refresh</button></div>
-<div id="status" class="status">Loading…</div>
+<div id="status" class="status">Loading dashboard…</div>
 <div class="grid" id="stats"></div>
-
-<div class="section card"><h2>⚡ Quick User Balance</h2>
-<div class="form"><input class="input" id="uid" placeholder="Telegram User ID" inputmode="numeric"><input class="input" id="amount" placeholder="Amount ₹" inputmode="decimal"><input class="input" id="reason" placeholder="Reason"><div class="actions"><button class="btn green" onclick="addBalance()">➕ Add</button><button class="btn red" onclick="deductBalance()">➖ Deduct</button></div></div>
-</div>
-
-<div class="section card"><h2>🔎 User Lookup</h2>
-<div class="form"><input class="input" id="lookup" placeholder="Telegram User ID" inputmode="numeric"><button class="btn" onclick="lookupUser()">Search</button></div><div id="lookupbox" style="margin-top:10px"></div>
-</div>
-
-<div class="two">
 <div class="section card"><h2>🧾 Pending Proofs</h2><div id="proofs">Loading…</div></div>
 <div class="section card"><h2>💸 Withdrawals</h2><div id="withdrawals">Loading…</div></div>
-</div>
-
-<div class="section card"><h2>📢 Force Channel Join</h2>
-<div class="meta">Users must be members before using the bot. The bot must be an administrator in the required channel to check membership.</div>
-<div class="form" style="margin-top:10px"><input class="input" id="channel" placeholder="@yourchannel or -100..."><input class="input" id="channelurl" placeholder="https://t.me/yourchannel"><button class="btn green" onclick="saveForceJoin()">Save / Enable</button><button class="btn red" onclick="disableForceJoin()">Disable</button></div><div id="fj" class="status"></div>
-</div>
-<div class="section card"><h2>📊 System</h2><div id="system" class="meta">Loading…</div></div>
+<div class="section card"><h2>💰 Add Balance</h2><div class="meta" style="margin-bottom:10px">Credit a user's wallet without deleting or resetting existing data.</div>
+<div class="form"><input class="input" id="uid" placeholder="Telegram User ID" inputmode="numeric"><input class="input" id="amount" placeholder="Amount ₹" inputmode="decimal"><input class="input" id="reason" placeholder="Reason (optional)"><button class="btn green" onclick="addBalance()">Add Balance</button></div></div>
 </div>
 <script>
-const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();
-const init=()=>tg?.initData||'';
-const headers=()=>({'X-Telegram-Init-Data':init(),'Content-Type':'application/json'});
-async function api(url,opt={}){const r=await fetch(url,{...opt,headers:{...headers(),...(opt.headers||{})}});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.detail||d.message||('HTTP '+r.status));return d}
+const tg=window.Telegram?.WebApp; tg?.ready(); tg?.expand();
+const init=()=>tg?.initData||''; const headers=()=>({'X-Telegram-Init-Data':init(),'Content-Type':'application/json'});
+async function api(url,opt={}){const r=await fetch(url,{...opt,headers:{...headers(),...(opt.headers||{})}}); let d={}; try{d=await r.json()}catch{} if(!r.ok) throw new Error(d.detail||d.message||('HTTP '+r.status)); return d}
 function esc(x){return String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 async function loadAll(){
- if(!init()){ $('status').textContent='❌ Open this dashboard from Telegram using 📊 OPEN ADMIN DASHBOARD.';return}
- $('status').textContent='Refreshing…';
+ document.getElementById('status').textContent='Refreshing…';
+ if(!init()){document.getElementById('status').textContent='❌ Open this page from the Telegram Admin Dashboard button.';return}
  try{
-  const [o,p,w,s]=await Promise.all([api('/api/admin/overview'),api('/api/admin/proofs'),api('/api/admin/withdrawals'),api('/api/admin/settings')]);
-  $('who').textContent='Telegram Admin • Secure Web App';
-  const items=[['👥 Users',o.users],['📱 QRs',o.qrs],['🟢 Available',o.available],['🎯 Claims',o.claims],['🧾 Pending Proofs',o.proofs],['💸 Withdrawals',o.withdrawals],['⏳ Pending WD',o.pending_withdrawals],['💰 Paid','₹'+Number(o.paid||0).toFixed(2)]];
-  $('stats').innerHTML=items.map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="num">${esc(x[1])}</div></div>`).join('');
-  renderProofs(p.proofs||[]);renderWithdrawals(w.withdrawals||[]);
-  $('channel').value=s.force_join_channel||'';$('channelurl').value=s.force_join_url||'';
-  $('fj').innerHTML=s.force_join_channel?`📢 <b>ON:</b> ${esc(s.force_join_channel)} <span class="pill">UPI ${s.upi?'ON':'OFF'} • USDT ${s.usdt?'ON':'OFF'} • Min ₹${Number(s.min_withdrawal).toFixed(0)}</span>`:`❌ Force join is OFF`;
-  $('system').innerHTML=`UPI: ${s.upi?'ON':'OFF'} • USDT: ${s.usdt?'ON':'OFF'} • Minimum withdrawal: ₹${Number(s.min_withdrawal).toFixed(0)}<br>Force join: ${s.force_join_channel?'ON':'OFF'}`;
-  $('status').textContent='✅ Dashboard connected';
- }catch(e){$('status').textContent='❌ '+e.message}
+  const [o,p,w]=await Promise.all([api('/api/admin/overview'),api('/api/admin/proofs'),api('/api/admin/withdrawals')]);
+  document.getElementById('who').textContent='Telegram Admin • Secure Web App';
+  const items=[['👥 Users',o.users],['📱 Total QRs',o.qrs],['🟢 Available',o.available],['🎯 Claims',o.claims],['🧾 Pending Proofs',o.proofs],['💸 Withdrawals',o.withdrawals],['⏳ Pending WD',o.pending_withdrawals],['💰 Paid', '₹'+Number(o.paid||0).toFixed(2)]];
+  document.getElementById('stats').innerHTML=items.map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="num">${esc(x[1])}</div></div>`).join('');
+  renderProofs(p.proofs||[]); renderWithdrawals(w.withdrawals||[]); document.getElementById('status').textContent='✅ Dashboard connected';
+ }catch(e){document.getElementById('status').textContent='❌ '+e.message}
 }
-function renderProofs(rows){$('proofs').innerHTML=rows.length?rows.map(r=>`<div class="row"><div><b>Proof #${esc(r.id)} • QR #${esc(r.qr_id)}</b><div class="meta">👤 ${esc(r.username?'@'+r.username:r.name||r.user_id)} • 📱 ${esc(r.app_name)} • 💰 ₹${Number(r.reward||0).toFixed(2)}</div></div><div class="actions"><button class="btn green" onclick="proofAction(${r.id},'approve')">🟢 APPROVE</button><button class="btn red" onclick="proofAction(${r.id},'reject')">🔴 REJECT</button></div></div>`).join(''):'<div class="empty">No pending proofs.</div>'}
+function renderProofs(rows){const el=document.getElementById('proofs');if(!rows.length){el.innerHTML='<div class="empty">No pending proofs.</div>';return}el.innerHTML=rows.map(r=>`<div class="row"><div><b>Proof #${esc(r.id)} • QR #${esc(r.qr_id)}</b><div class="meta">👤 ${esc(r.username||r.user_id)} • 📱 ${esc(r.app_name)} • 💰 ₹${Number(r.reward||0).toFixed(2)}</div></div><div class="actions"><button class="btn green" onclick="proofAction(${r.id},'approve')">🟢 APPROVE</button><button class="btn red" onclick="proofAction(${r.id},'reject')">🔴 REJECT</button></div></div>`).join('')}
 async function proofAction(id,action){if(!confirm((action==='approve'?'Approve':'Reject')+' proof #'+id+'?'))return;try{await api('/api/admin/proof',{method:'POST',body:JSON.stringify({id,action})});await loadAll()}catch(e){alert(e.message)}}
-function renderWithdrawals(rows){$('withdrawals').innerHTML=rows.length?rows.map(r=>{let a='';if(r.status==='pending')a+=`<button class="btn" onclick="wd(${r.id},'processing')">🔄 PROCESSING</button>`;if(r.status==='processing')a+=`<button class="btn green" onclick="wd(${r.id},'paid')">✅ PAID</button>`;if(r.status!=='paid'&&r.status!=='rejected')a+=`<button class="btn red" onclick="wd(${r.id},'reject')">🔴 REJECT</button>`;return `<div class="row"><div><b>#${esc(r.id)} • ₹${Number(r.amount||0).toFixed(2)}</b><div class="meta">👤 ${esc(r.username?'@'+r.username:r.name||r.user_id)} • ${esc(r.method)} • ${esc(r.account)} • ${esc(r.status)}</div></div><div class="actions">${a}</div></div>`}).join(''):'<div class="empty">No withdrawals.</div>'}
+function renderWithdrawals(rows){const el=document.getElementById('withdrawals');if(!rows.length){el.innerHTML='<div class="empty">No withdrawals.</div>';return}el.innerHTML=rows.map(r=>{let a='';if(r.status==='pending')a+=`<button class="btn" onclick="wd(${r.id},'processing')">🔄 PROCESSING</button>`;if(r.status==='processing')a+=`<button class="btn green" onclick="wd(${r.id},'paid')">✅ PAID</button>`;if(r.status!=='paid'&&r.status!=='rejected')a+=`<button class="btn red" onclick="wd(${r.id},'reject')">🔴 REJECT</button>`;return `<div class="row"><div><b>#${esc(r.id)} • ₹${Number(r.amount||0).toFixed(2)}</b><div class="meta">👤 ${esc(r.username||r.user_id)} • ${esc(r.method)} • ${esc(r.account)} • ${esc(r.status)}</div></div><div class="actions">${a}</div></div>`}).join('')}
 async function wd(id,action){if(!confirm('Change withdrawal #'+id+' to '+action+'?'))return;try{await api('/api/admin/withdrawal',{method:'POST',body:JSON.stringify({id,action})});await loadAll()}catch(e){alert(e.message)}}
-async function addBalance(){const user_id=$('uid').value.trim(),amount=$('amount').value.trim(),reason=$('reason').value.trim();if(!user_id||!amount)return alert('Enter User ID and amount');try{const d=await api('/api/admin/add-balance',{method:'POST',body:JSON.stringify({user_id,amount,reason})});alert('✅ Added ₹'+Number(d.added).toFixed(2)+'\nNew balance: ₹'+Number(d.balance).toFixed(2));$('amount').value='';await loadAll()}catch(e){alert(e.message)}}
-async function deductBalance(){const user_id=$('uid').value.trim(),amount=$('amount').value.trim(),reason=$('reason').value.trim();if(!user_id||!amount)return alert('Enter User ID and amount');try{const d=await api('/api/admin/deduct-balance',{method:'POST',body:JSON.stringify({user_id,amount,reason})});alert('✅ Deducted ₹'+Number(d.deducted).toFixed(2)+'\nNew balance: ₹'+Number(d.balance).toFixed(2));$('amount').value='';await loadAll()}catch(e){alert(e.message)}}
-async function lookupUser(){const id=$('lookup').value.trim();if(!id)return;try{const d=await api('/api/admin/user?user_id='+encodeURIComponent(id));const u=d.user;$('lookupbox').innerHTML=`<div class="row"><div><b>${esc(u.name||'User')} ${u.username?'(@'+esc(u.username)+')':''}</b><div class="meta">ID: ${esc(u.id)} • Balance: <b>₹${Number(u.balance).toFixed(2)}</b> • Earned: ₹${Number(u.total_earned).toFixed(2)} • Withdrawn: ₹${Number(u.total_withdrawn).toFixed(2)}</div></div></div><div class="meta">Recent transactions: ${d.transactions.length} • Recent withdrawals: ${d.withdrawals.length}</div>`;$('uid').value=u.id}catch(e){$('lookupbox').innerHTML='<span class="bad">❌ '+esc(e.message)+'</span>'}}
-async function saveForceJoin(){try{const c=$('channel').value.trim(),u=$('channelurl').value.trim();if(!c)return alert('Enter channel');await api('/api/admin/force-join',{method:'POST',body:JSON.stringify({channel:c,url:u})});alert('✅ Force join enabled');await loadAll()}catch(e){alert(e.message)}}
-async function disableForceJoin(){if(!confirm('Disable force join?'))return;try{await api('/api/admin/force-join',{method:'POST',body:JSON.stringify({channel:'',url:''})});await loadAll()}catch(e){alert(e.message)}}
+async function addBalance(){const user_id=document.getElementById('uid').value.trim(),amount=document.getElementById('amount').value.trim(),reason=document.getElementById('reason').value.trim();if(!user_id||!amount){alert('Enter User ID and amount');return}try{const d=await api('/api/admin/add-balance',{method:'POST',body:JSON.stringify({user_id,amount,reason})});alert('✅ Added ₹'+Number(d.added).toFixed(2)+'\nNew balance: ₹'+Number(d.balance).toFixed(2));document.getElementById('amount').value='';document.getElementById('reason').value='';await loadAll()}catch(e){alert(e.message)}}
 loadAll();
 </script></body></html>
 
