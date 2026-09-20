@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Reward Bot — Admin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg:#0A0F1C;
+    --surface:#111A2E;
+    --surface-2:#16213A;
+    --border:#243050;
+    --text:#E8ECF6;
+    --muted:#8B96B3;
+    --accent:#3B7EFF;
+    --accent-dim:#1E3A6E;
+    --success:#31B27A;
+    --danger:#E5586B;
+    --warning:#D7A342;
+    --radius:10px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);min-height:100vh;}
+  a{color:inherit;}
+  .app{display:flex;min-height:100vh;}
+  .sidebar{
+    width:230px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+    padding:20px 0;position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .brand{padding:0 20px 20px;border-bottom:1px solid var(--border);margin-bottom:12px;}
+  .brand-title{font-size:15px;font-weight:700;letter-spacing:.2px;}
+  .brand-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .nav-item{
+    display:flex;align-items:center;gap:10px;padding:11px 20px;font-size:13.5px;color:var(--muted);
+    cursor:pointer;border-left:3px solid transparent;transition:background .15s,color .15s;
+  }
+  .nav-item:hover{background:var(--surface-2);color:var(--text);}
+  .nav-item.active{color:var(--text);background:var(--surface-2);border-left-color:var(--accent);}
+  .main{flex:1;padding:28px 32px;max-width:1180px;}
+  .page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;}
+  .page-title{font-size:20px;font-weight:700;}
+  .page-sub{color:var(--muted);font-size:13px;margin-top:3px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:24px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .stat-value{font-size:24px;font-weight:700;}
+  .stat-label{font-size:12px;color:var(--muted);margin-top:4px;}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:20px;}
+  .panel-title{font-size:14px;font-weight:700;margin-bottom:14px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  tr:last-child td{border-bottom:none;}
+  .table-wrap{overflow-x:auto;}
+  .badge{display:inline-block;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600;}
+  .badge.AVAILABLE{background:#1E3A6E;color:#8FB4FF;}
+  .badge.CLAIMED{background:#3A3320;color:#D7A342;}
+  .badge.VERIFICATION_PENDING,.badge.PENDING,.badge.PROCESSING{background:#3A3320;color:#D7A342;}
+  .badge.SUCCESS,.badge.PAID,.badge.COMPLETED,.badge.VERIFIED{background:#173B2C;color:#31B27A;}
+  .badge.FAILED,.badge.REJECTED{background:#3B1F26;color:#E5586B;}
+  button{
+    font-family:inherit;font-size:13px;font-weight:600;border-radius:8px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--text);padding:7px 14px;cursor:pointer;transition:background .15s,border-color .15s;
+  }
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary:hover{background:#2E6BE0;}
+  button.success{background:var(--success);border-color:var(--success);color:#06261A;}
+  button.danger{background:var(--danger);border-color:var(--danger);color:#2C0A0F;}
+  button.small{padding:5px 10px;font-size:12px;}
+  input,select,textarea{
+    width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--bg);
+    color:var(--text);font-size:13px;font-family:inherit;
+  }
+  label{font-size:12px;color:var(--muted);display:block;margin:10px 0 5px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;}
+  .row > *{flex:1;min-width:160px;}
+  .toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center;}
+  .toolbar input,.toolbar select{width:auto;min-width:160px;}
+  .muted{color:var(--muted);}
+  .hidden{display:none !important;}
+  .empty{padding:30px;text-align:center;color:var(--muted);font-size:13px;}
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(5,8,16,.6);display:flex;align-items:center;justify-content:center;z-index:50;
+  }
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;width:400px;max-width:92vw;}
+  .modal-title{font-size:15px;font-weight:700;margin-bottom:14px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
+  .toast{
+    position:fixed;bottom:20px;right:20px;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:8px;padding:12px 16px;font-size:13px;z-index:100;
+  }
+  .toast.err{border-color:var(--danger);color:#FFB4BE;}
+  .login-gate{display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:20px;}
+  @media (max-width:800px){
+    .sidebar{width:64px;}
+    .brand-title,.brand-sub,.nav-item span.label{display:none;}
+    .main{padding:18px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="gate" class="login-gate">
+  <div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px;">QR Reward Bot Admin</div>
+    <div class="muted" style="font-size:13px;">Open this dashboard from the /admin command inside Telegram.</div>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-title">QR REWARD BOT</div>
+      <div class="brand-sub">Admin Dashboard</div>
+    </div>
+    <div class="nav-item active" data-page="dashboard"><span class="label">Dashboard</span></div>
+    <div class="nav-item" data-page="qrs"><span class="label">QR Management</span></div>
+    <div class="nav-item" data-page="orders"><span class="label">Order Management</span></div>
+    <div class="nav-item" data-page="confirmations"><span class="label">Confirmation Review</span></div>
+    <div class="nav-item" data-page="withdrawals"><span class="label">Withdrawals</span></div>
+    <div class="nav-item" data-page="users"><span class="label">Users</span></div>
+    <div class="nav-item" data-page="broadcast"><span class="label">Broadcast</span></div>
+    <div class="nav-item" data-page="forcejoin"><span class="label">Force Join</span></div>
+    <div class="nav-item" data-page="admins"><span class="label">Admin Management</span></div>
+    <div class="nav-item" data-page="settings"><span class="label">Settings</span></div>
+    <div class="nav-item" data-page="logs"><span class="label">Logs</span></div>
+  </div>
+
+  <div class="main">
+    <!-- Dashboard -->
+    <section id="page-dashboard" class="page">
+      <div class="page-header">
+        <div><div class="page-title">Dashboard</div><div class="page-sub">Live overview of tasks, orders and withdrawals</div></div>
+        <button onclick="loadOverview()">Refresh</button>
+      </div>
+      <div class="grid" id="overview-grid"></div>
+    </section>
+
+    <!-- QR Management -->
+    <section id="page-qrs" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">QR Management</div><div class="page-sub">Create and broadcast reward tasks</div></div>
+        <button class="primary" onclick="openAddTaskModal()">Add QR</button>
+      </div>
+      <div class="panel">
+        <div class="toolbar">
+          <select id="qr-filter" onchange="loadTasks()">
+            <option value="">All statuses</option>
+            <option value="AVAILABLE">Available</option>
+            <option value="CLAIMED">Claimed</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="VERIFIED">Verified</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>QR ID</th><th>App</th><th>Reward</th><th>Status</th><th>Claimed By</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="qr-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Orders -->
+    <section id="page-orders" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Order Management</div><div class="page-sub">Every claimed task and its lifecycle</div></div>
+      </div>
+      <div class="panel">
+        <div class="toolbar">
+          <select id="order-filter" onchange="loadOrders()">
+            <option value="">All statuses</option>
+            <option value="CLAIMED">Claimed</option>
+            <option value="VERIFICATION_PENDING">Confirmation Pending</option>
+            <option value="SUCCESS">Success</option>
+            <option value="FAILED">Failed</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Order</th><th>QR</th><th>User</th><th>Telegram ID</th><th>App</th><th>Reward</th><th>Status</th><th>Claimed</th></tr></thead>
+            <tbody id="orders-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Confirmations -->
+    <section id="page-confirmations" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Confirmation Review</div><div class="page-sub">Task completions awaiting verification</div></div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Order</th><th>User</th><th>Telegram ID</th><th>App</th><th>Reward</th><th>Submitted</th><th>Actions</th></tr></thead>
+            <tbody id="confirmations-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Withdrawals -->
+    <section id="page-withdrawals" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Withdrawals</div><div class="page-sub">Binance UID payouts</div></div>
+      </div>
+      <div class="panel">
+        <div class="toolbar">
+          <select id="wd-filter" onchange="loadWithdrawals()">
+            <option value="">All statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="PROCESSING">Processing</option>
+            <option value="PAID">Paid</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>User</th><th>INR</th><th>USD</th><th>Binance ID</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="wd-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Users -->
+    <section id="page-users" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Users</div><div class="page-sub">Search and manage user accounts</div></div>
+      </div>
+      <div class="panel">
+        <div class="toolbar">
+          <input id="user-search" placeholder="Search by ID, username or name" oninput="debouncedUserSearch()">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Telegram ID</th><th>Username</th><th>Name</th><th>Balance</th><th>Earned</th><th>Withdrawn</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="users-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Broadcast -->
+    <section id="page-broadcast" class="page hidden">
+      <div class="page-header"><div><div class="page-title">Broadcast</div><div class="page-sub">Message every registered user</div></div></div>
+      <div class="panel" style="max-width:520px;">
+        <label>Message</label>
+        <textarea id="broadcast-text" rows="5" placeholder="Write your announcement..."></textarea>
+        <div class="modal-actions" style="justify-content:flex-start;">
+          <button class="primary" onclick="sendBroadcast()">Send Broadcast</button>
+        </div>
+        <div id="broadcast-result" class="muted" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+    </section>
+
+    <!-- Force Join -->
+    <section id="page-forcejoin" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Force Join</div><div class="page-sub">Required channels before claiming tasks</div></div>
+        <button class="primary" onclick="openAddChannelModal()">Add Channel</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Channel</th><th>Invite URL</th><th>Enabled</th><th>Actions</th></tr></thead>
+            <tbody id="fj-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Admins -->
+    <section id="page-admins" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Admin Management</div><div class="page-sub">Who can access this dashboard and bot admin commands</div></div>
+        <button class="primary" onclick="openAddAdminModal()">Add Admin</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Telegram ID</th><th>Owner</th><th>Added</th><th>Actions</th></tr></thead>
+            <tbody id="admins-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="page-settings" class="page hidden">
+      <div class="page-header"><div><div class="page-title">Settings</div><div class="page-sub">Read-only — configured via environment variables</div></div></div>
+      <div class="panel" id="settings-panel"></div>
+    </section>
+
+    <!-- Logs -->
+    <section id="page-logs" class="page hidden">
+      <div class="page-header">
+        <div><div class="page-title">Logs</div><div class="page-sub">Recent system and admin activity</div></div>
+        <button onclick="loadLogs()">Refresh</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Event</th><th>Detail</th><th>Actor</th></tr></thead>
+            <tbody id="logs-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+let initData = "";
+
+function init() {
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    initData = tg.initData || "";
+  }
+  if (!initData) {
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+    return;
+  }
+  document.getElementById('gate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  wireNav();
+  loadOverview();
+}
+
+function wireNav() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => showPage(item.dataset.page));
+  });
+}
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.getElementById('page-' + name).classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
+  const loaders = {
+    dashboard: loadOverview, qrs: loadTasks, orders: loadOrders, confirmations: loadConfirmations,
+    withdrawals: loadWithdrawals, users: () => loadUsers(''), broadcast: () => {},
+    forcejoin: loadForceJoin, admins: loadAdmins, settings: loadSettings, logs: loadLogs,
+  };
+  (loaders[name] || (() => {}))();
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData}, opts.headers || {});
+  const res = await fetch(path, Object.assign({}, opts, {headers}));
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({detail: res.statusText}));
+    throw new Error(body.detail || 'Request failed');
+  }
+  return res.json();
+}
+
+function toast(msg, isErr) {
+  const root = document.getElementById('toast-root');
+  const el = document.createElement('div');
+  el.className = 'toast' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  root.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function badge(status) {
+  return `<span class="badge ${status}">${(status || '').replace(/_/g, ' ')}</span>`;
+}
+
+function fmtDate(s) {
+  return s ? s.replace('T', ' ').slice(0, 16) : '—';
+}
+
+// ---------------- Dashboard ----------------
+async function loadOverview() {
+  try {
+    const d = await api('/api/admin/overview');
+    const items = [
+      ['Total Users', d.total_users], ['Total QRs', d.total_tasks],
+      ['Available QRs', d.available_tasks], ['Claimed QRs', d.claimed_tasks],
+      ['Successful Orders', d.successful_orders], ['Failed Orders', d.failed_orders],
+      ['Confirmation Pending', d.verification_pending], ['Total Rewards Paid', '$' + d.total_rewards_paid.toFixed(2)],
+      ['Pending Withdrawals', d.pending_withdrawals], ['Processing Withdrawals', d.processing_withdrawals],
+      ['Paid Withdrawals', d.paid_withdrawals],
+    ];
+    document.getElementById('overview-grid').innerHTML = items.map(([label, value]) =>
+      `<div class="stat-card"><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`
+    ).join('');
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- QR Management ----------------
+async function loadTasks() {
+  const status = document.getElementById('qr-filter').value;
+  try {
+    const rows = await api('/api/admin/qrs' + (status ? '?status=' + status : ''));
+    document.getElementById('qr-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>#${r.task_id}</td><td>${r.app_name}</td><td>$${r.reward_usd.toFixed(2)}</td>
+        <td>${badge(r.status)}</td><td>${r.claimed_by || '—'}</td><td>${fmtDate(r.created_at)}</td>
+        <td>
+          ${r.status === 'AVAILABLE' ? `<button class="small primary" onclick="postTask(${r.task_id})">Post</button>` : ''}
+          ${r.active ? `<button class="small danger" onclick="deactivateTask(${r.task_id})">Deactivate</button>` : '<span class="muted">Inactive</span>'}
+        </td>
+      </tr>`).join('') : `<tr><td colspan="7" class="empty">No QRs yet</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function postTask(id) {
+  try { await api('/api/admin/post-qr', {method: 'POST', body: JSON.stringify({task_id: id})}); toast('Posted to groups.'); loadTasks(); }
+  catch (e) { toast(e.message, true); }
+}
+async function deactivateTask(id) {
+  try { await api(`/api/admin/qr/${id}/deactivate`, {method: 'POST'}); toast('Deactivated.'); loadTasks(); }
+  catch (e) { toast(e.message, true); }
+}
+
+function openAddTaskModal() {
+  renderModal(`
+    <div class="modal-title">Add QR / Task</div>
+    <label>App Name</label><input id="m-app-name">
+    <label>Task Description</label><textarea id="m-desc" rows="3"></textarea>
+    <label>Reward (USD)</label><input id="m-reward" type="number" step="0.01">
+    <div class="muted" style="font-size:12px;margin-top:8px;">Image upload isn't available from the web dashboard — use /addqr in the bot to attach a QR image.</div>
+    <div class="modal-actions">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitAddTask()">Create</button>
+    </div>
+  `);
+}
+async function submitAddTask() {
+  const app_name = document.getElementById('m-app-name').value.trim();
+  const task_description = document.getElementById('m-desc').value.trim();
+  const reward_usd = parseFloat(document.getElementById('m-reward').value);
+  if (!app_name || !reward_usd) { toast('App name and reward are required.', true); return; }
+  try {
+    await api('/api/admin/qr', {method: 'POST', body: JSON.stringify({app_name, task_description, reward_usd})});
+    toast('QR created.'); closeModal(); loadTasks();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Orders ----------------
+async function loadOrders() {
+  const status = document.getElementById('order-filter').value;
+  try {
+    const rows = await api('/api/admin/orders' + (status ? '?status=' + status : ''));
+    document.getElementById('orders-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>#${r.order_id}</td><td>#${r.task_id}</td><td>${r.first_name || ''} ${r.last_name || ''}</td>
+        <td>${r.telegram_id}</td><td>${r.app_name}</td><td>$${r.reward_usd.toFixed(2)}</td>
+        <td>${badge(r.status)}</td><td>${fmtDate(r.claimed_at)}</td>
+      </tr>`).join('') : `<tr><td colspan="8" class="empty">No orders yet</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Confirmations ----------------
+async function loadConfirmations() {
+  try {
+    const rows = await api('/api/admin/confirmations');
+    document.getElementById('confirmations-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>#${r.order_id}</td><td>${r.first_name || ''} ${r.last_name || ''}</td><td>${r.telegram_id}</td>
+        <td>${r.app_name}</td><td>$${r.reward_usd.toFixed(2)}</td><td>${fmtDate(r.submitted_at)}</td>
+        <td>
+          <button class="small success" onclick="orderAction(${r.order_id}, 'approve')">Approve</button>
+          <button class="small danger" onclick="orderAction(${r.order_id}, 'reject')">Reject</button>
+        </td>
+      </tr>`).join('') : `<tr><td colspan="7" class="empty">Nothing pending review</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+async function orderAction(order_id, action) {
+  try { await api('/api/admin/order-action', {method: 'POST', body: JSON.stringify({order_id, action})}); toast('Done.'); loadConfirmations(); loadOverview(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Withdrawals ----------------
+async function loadWithdrawals() {
+  const status = document.getElementById('wd-filter').value;
+  try {
+    const rows = await api('/api/admin/withdrawals' + (status ? '?status=' + status : ''));
+    document.getElementById('wd-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>#${r.withdrawal_id}</td><td>${r.first_name || ''} (${r.telegram_id})</td>
+        <td>₹${r.amount_inr.toFixed(2)}</td><td>$${r.amount_usd.toFixed(2)}</td><td>${r.binance_id}</td>
+        <td>${badge(r.status)}</td><td>${fmtDate(r.created_at)}</td>
+        <td>
+          ${r.status === 'PENDING' ? `<button class="small" onclick="wdAction(${r.withdrawal_id}, 'process')">Process</button>` : ''}
+          ${r.status === 'PROCESSING' ? `<button class="small success" onclick="wdAction(${r.withdrawal_id}, 'paid')">Mark Paid</button>` : ''}
+          ${(r.status === 'PENDING' || r.status === 'PROCESSING') ? `<button class="small danger" onclick="wdAction(${r.withdrawal_id}, 'reject')">Reject</button>` : ''}
+        </td>
+      </tr>`).join('') : `<tr><td colspan="8" class="empty">No withdrawals yet</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+async function wdAction(id, action) {
+  try { await api('/api/admin/withdrawal-action', {method: 'POST', body: JSON.stringify({withdrawal_id: id, action})}); toast('Updated.'); loadWithdrawals(); loadOverview(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Users ----------------
+let userSearchTimer;
+function debouncedUserSearch() {
+  clearTimeout(userSearchTimer);
+  userSearchTimer = setTimeout(() => loadUsers(document.getElementById('user-search').value), 300);
+}
+async function loadUsers(q) {
+  try {
+    const rows = await api('/api/admin/users' + (q ? '?q=' + encodeURIComponent(q) : ''));
+    document.getElementById('users-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>${r.telegram_id}</td><td>${r.username ? '@' + r.username : '—'}</td>
+        <td>${r.first_name || ''} ${r.last_name || ''}</td><td>$${r.balance_usd.toFixed(2)}</td>
+        <td>$${r.total_earned_usd.toFixed(2)}</td><td>$${r.total_withdrawn_usd.toFixed(2)}</td>
+        <td>${r.banned ? badge('REJECTED').replace('REJECTED','BANNED') : '<span class="muted">Active</span>'}</td>
+        <td>
+          <button class="small" onclick="openBalanceModal(${r.telegram_id}, 'add')">Add $</button>
+          <button class="small" onclick="openBalanceModal(${r.telegram_id}, 'deduct')">Deduct $</button>
+          <button class="small ${r.banned ? '' : 'danger'}" onclick="toggleBan(${r.telegram_id}, ${!r.banned})">${r.banned ? 'Unban' : 'Ban'}</button>
+        </td>
+      </tr>`).join('') : `<tr><td colspan="8" class="empty">No users found</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+function openBalanceModal(telegram_id, mode) {
+  renderModal(`
+    <div class="modal-title">${mode === 'add' ? 'Add Balance' : 'Deduct Balance'}</div>
+    <label>Amount (USD)</label><input id="m-amount" type="number" step="0.01">
+    <label>Note</label><input id="m-note" placeholder="Reason (optional)">
+    <div class="modal-actions">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitBalance(${telegram_id}, '${mode}')">Confirm</button>
+    </div>
+  `);
+}
+async function submitBalance(telegram_id, mode) {
+  const amount_usd = parseFloat(document.getElementById('m-amount').value);
+  const note = document.getElementById('m-note').value.trim();
+  if (!amount_usd) { toast('Enter an amount.', true); return; }
+  try {
+    await api(`/api/admin/${mode === 'add' ? 'add-balance' : 'deduct-balance'}`, {method: 'POST', body: JSON.stringify({telegram_id, amount_usd, note})});
+    toast('Balance updated.'); closeModal(); loadUsers(document.getElementById('user-search').value);
+  } catch (e) { toast(e.message, true); }
+}
+async function toggleBan(telegram_id, banned) {
+  try { await api('/api/admin/ban', {method: 'POST', body: JSON.stringify({telegram_id, banned})}); toast(banned ? 'User banned.' : 'User unbanned.'); loadUsers(document.getElementById('user-search').value); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Broadcast ----------------
+async function sendBroadcast() {
+  const message = document.getElementById('broadcast-text').value.trim();
+  if (!message) { toast('Write a message first.', true); return; }
+  try {
+    const r = await api('/api/admin/broadcast', {method: 'POST', body: JSON.stringify({message})});
+    document.getElementById('broadcast-result').textContent = `Total users: ${r.total_users} · Sent: ${r.sent} · Failed: ${r.failed}`;
+    toast('Broadcast sent.');
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Force Join ----------------
+async function loadForceJoin() {
+  try {
+    const rows = await api('/api/admin/force-join');
+    document.getElementById('fj-table').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>${r.channel_id}</td><td>${r.invite_url || '—'}</td>
+        <td>${r.enabled ? 'Yes' : 'No'}</td>
+        <td>
+          <button class="small" onclick="fjAction('${r.channel_id}', '${r.enabled ? 'disable' : 'enable'}')">${r.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="small danger" onclick="fjAction('${r.channel_id}', 'remove')">Remove</button>
+        </td>
+      </tr>`).join('') : `<tr><td colspan="4" class="empty">No channels configured</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+function openAddChannelModal() {
+  renderModal(`
+    <div class="modal-title">Add Required Channel</div>
+    <label>Channel (@username or -100... ID)</label><input id="m-channel">
+    <label>Invite URL (optional)</label><input id="m-invite">
+    <div class="modal-actions">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitAddChannel()">Add</button>
+    </div>
+  `);
+}
+async function submitAddChannel() {
+  const channel_id = document.getElementById('m-channel').value.trim();
+  const invite_url = document.getElementById('m-invite').value.trim();
+  if (!channel_id) { toast('Enter a channel.', true); return; }
+  try { await fjAction(channel_id, 'add', invite_url); closeModal(); } catch (e) { toast(e.message, true); }
+}
+async function fjAction(channel_id, action, invite_url) {
+  try { await api('/api/admin/force-join', {method: 'POST', body: JSON.stringify({channel_id, action, invite_url: invite_url || ''})}); toast('Updated.'); loadForceJoin(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Admins ----------------
+async function loadAdmins() {
+  try {
+    const rows = await api('/api/admin/admins');
+    document.getElementById('admins-table').innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.telegram_id}</td><td>${r.is_owner ? 'Yes' : 'No'}</td><td>${fmtDate(r.added_at)}</td>
+        <td>${r.is_owner ? '<span class="muted">Protected</span>' : `<button class="small danger" onclick="removeAdmin(${r.telegram_id})">Remove</button>`}</td>
+      </tr>`).join('');
+  } catch (e) { toast(e.message, true); }
+}
+function openAddAdminModal() {
+  renderModal(`
+    <div class="modal-title">Add Admin</div>
+    <label>Telegram ID</label><input id="m-admin-id" type="number">
+    <div class="modal-actions">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitAddAdmin()">Add</button>
+    </div>
+  `);
+}
+async function submitAddAdmin() {
+  const telegram_id = parseInt(document.getElementById('m-admin-id').value);
+  if (!telegram_id) { toast('Enter a valid Telegram ID.', true); return; }
+  try { await api('/api/admin/admins', {method: 'POST', body: JSON.stringify({telegram_id})}); toast('Admin added.'); closeModal(); loadAdmins(); }
+  catch (e) { toast(e.message, true); }
+}
+async function removeAdmin(telegram_id) {
+  try { await api(`/api/admin/admins/${telegram_id}`, {method: 'DELETE'}); toast('Admin removed.'); loadAdmins(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Settings ----------------
+async function loadSettings() {
+  try {
+    const s = await api('/api/admin/settings');
+    document.getElementById('settings-panel').innerHTML = `
+      <div class="row"><div><label>USD → INR rate</label><input value="${s.usd_to_inr}" disabled></div>
+      <div><label>Minimum withdrawal (USD)</label><input value="${s.min_withdrawal_usd}" disabled></div></div>
+      <div class="row"><div><label>Force join enabled</label><input value="${s.force_join_enabled}" disabled></div>
+      <div><label>Group IDs</label><input value="${s.group_ids.join(', ') || '—'}" disabled></div></div>
+      <div class="row"><div><label>Support username</label><input value="${s.support_username || '—'}" disabled></div>
+      <div><label>Web App URL</label><input value="${s.webapp_url || '—'}" disabled></div></div>
+    `;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Logs ----------------
+async function loadLogs() {
+  try {
+    const rows = await api('/api/admin/logs?limit=150');
+    document.getElementById('logs-table').innerHTML = rows.length ? rows.map(r => `
+      <tr><td>${fmtDate(r.created_at)}</td><td>${r.event}</td><td>${r.detail || ''}</td><td>${r.actor_id || '—'}</td></tr>
+    `).join('') : `<tr><td colspan="4" class="empty">No logs yet</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Modal ----------------
+function renderModal(innerHtml) {
+  document.getElementById('modal-root').innerHTML = `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${innerHtml}</div></div>`;
+}
+function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+
+init();
+</script>
+</body>
+</html>
