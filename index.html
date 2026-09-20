@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Admin</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="logo"><h2>QR Admin</h2></div>
+            <nav class="nav">
+                <a href="#" class="nav-item active" data-section="dashboard">📊 Dashboard</a>
+                <a href="#" class="nav-item" data-section="qrs">📱 QRs</a>
+                <a href="#" class="nav-item" data-section="orders">📋 Orders</a>
+                <a href="#" class="nav-item" data-section="withdrawals">💰 Withdrawals</a>
+                <a href="#" class="nav-item" data-section="users">👥 Users</a>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <header class="header">
+                <h1 id="page-title">Dashboard</h1>
+                <div class="user-info"><span id="user-name">Admin</span></div>
+            </header>
+            <section id="section-dashboard" class="section active">
+                <div class="stats-grid">
+                    <div class="stat-card"><h3>Users</h3><p class="stat-value" id="stat-users">0</p></div>
+                    <div class="stat-card"><h3>QRs</h3><p class="stat-value" id="stat-qrs">0</p></div>
+                    <div class="stat-card"><h3>Available</h3><p class="stat-value" id="stat-available">0</p></div>
+                    <div class="stat-card"><h3>Success</h3><p class="stat-value" id="stat-success">0</p></div>
+                    <div class="stat-card"><h3>Rewards</h3><p class="stat-value" id="stat-rewards">$0</p></div>
+                    <div class="stat-card"><h3>Pending WD</h3><p class="stat-value" id="stat-pending">0</p></div>
+                </div>
+            </section>
+            <section id="section-qrs" class="section">
+                <div class="section-header"><h2>QRs</h2></div>
+                <div class="table-container"><table class="table">
+                    <thead><tr><th>ID</th><th>App</th><th>Reward</th><th>Status</th><th>Claimed</th></tr></thead>
+                    <tbody id="qrs-body"><tr><td colspan="5" class="loading">Loading</td></tr></tbody>
+                </table></div>
+            </section>
+            <section id="section-orders" class="section">
+                <div class="section-header"><h2>Orders</h2></div>
+                <div class="table-container"><table class="table">
+                    <thead><tr><th>ID</th><th>User</th><th>App</th><th>Reward</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody id="orders-body"><tr><td colspan="6" class="loading">Loading</td></tr></tbody>
+                </table></div>
+            </section>
+            <section id="section-withdrawals" class="section">
+                <div class="section-header"><h2>Withdrawals</h2></div>
+                <div class="table-container"><table class="table">
+                    <thead><tr><th>ID</th><th>User</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody id="wd-body"><tr><td colspan="5" class="loading">Loading</td></tr></tbody>
+                </table></div>
+            </section>
+            <section id="section-users" class="section">
+                <div class="section-header"><h2>Users</h2></div>
+                <div class="table-container"><table class="table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Balance</th><th>Action</th></tr></thead>
+                    <tbody id="users-body"><tr><td colspan="4" class="loading">Loading</td></tr></tbody>
+                </table></div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
