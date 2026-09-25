@@ -1,0 +1,7 @@
+{% if session.admin %}
+⚡ QR Work
+📊 Dashboard📋 Tasks✅ Reviews👥 Users🚪 Logout
+{% else %}
+{% endif %}{% with messages=get_flashed_messages() %}{% for m in messages %}
+{{m}}
+{% endfor %}{% endwith %}{% block content %}{% endblock %}
