@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block content %}
+<h1>🎨 Message Style</h1>
+<div class="card">
+<h2>Global message style</h2>
+<p>Choose a preset or edit every task-message section. Changes apply to new messages sent by the bot.</p>
+<form method="post">
+<label>Preset</label>
+<select name="preset">
+{% for p in ["modern","minimal","premium"] %}<option value="{{p}}" {% if style_name==p %}selected{% endif %}>{{p|title}}</option>{% endfor %}
+</select>
+<label>Header</label><input name="task_header" value="{{style.task_header}}">
+<label>Reward</label><input name="task_reward" value="{{style.task_reward}}">
+<label>Expiry</label><input name="task_expiry" value="{{style.task_expiry}}">
+<label>Warning</label><input name="task_warning" value="{{style.task_warning}}">
+<label>Footer</label><textarea name="task_footer">{{style.task_footer}}</textarea>
+<p class="hint">Variables: {task_id} {title} {reward} {currency} {expires}</p>
+<button>💾 Save Style</button>
+</form>
+</div>
+<div class="card"><h2>Preview</h2>
+<pre class="preview">{{style.task_header|replace("{task_id}","643")|replace("{title}","UPI 扫码任务")|replace("{reward:.2f}","0.70")|replace("{currency}",currency)|replace("{expires}","10:05:50 UTC")}}
+{{style.task_reward|replace("{task_id}","643")|replace("{title}","UPI 扫码任务")|replace("{reward:.2f}","0.70")|replace("{currency}",currency)|replace("{expires}","10:05:50 UTC")}}
+{{style.task_expiry|replace("{task_id}","643")|replace("{title}","UPI 扫码任务")|replace("{reward:.2f}","0.70")|replace("{currency}",currency)|replace("{expires}","10:05:50 UTC")}}
+
+{{style.task_warning}}
+{{style.task_footer}}</pre></div>
+{% endblock %}
