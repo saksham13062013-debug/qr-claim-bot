@@ -1,0 +1,21 @@
+{
+  "name": "advanced-telegram-reward-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram campaign claim, QR/link delivery, manual verification and reward wallet",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node src/index.js", "dev": "node --watch src/index.js", "test": "node --test" },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "connect-sqlite3": "^0.9.16",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "grammy": "^1.35.0",
+    "helmet": "^8.0.0",
+    "multer": "^2.0.0"
+  }
+}
