@@ -1,0 +1,134 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+
+enum UserStatus { ACTIVE BLOCKED }
+enum AdminRole { OWNER SUPER_ADMIN MANAGER MODERATOR }
+enum QRStatus { DRAFT POSTED AVAILABLE PENDING CLAIMED RECLAIMED EXPIRED DISABLED }
+enum ClaimStatus { PENDING APPROVED REJECTED REVOKED }
+enum TxType { QR_REWARD WITHDRAWAL_REVERSAL ADMIN_ADJUSTMENT }
+enum WithdrawalStatus { PENDING PROCESSING PAID REJECTED }
+enum ForceJoinStatus { ACTIVE DISABLED }
+
+model User {
+  id BigInt @id @default(autoincrement())
+  telegramId BigInt @unique
+  username String?
+  firstName String?
+  status UserStatus @default(ACTIVE)
+  balanceCents Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  admin Admin?
+  claims QRClaim[]
+  transactions WalletTransaction[]
+  withdrawals Withdrawal[]
+  auditLogs AuditLog[] @relation("ActorLogs")
+  notifications Notification[]
+  @@index([createdAt])
+}
+
+model Admin {
+  id BigInt @id @default(autoincrement())
+  userId BigInt @unique
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  role AdminRole
+  permissions Json @default("[]")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model QRCode {
+  id BigInt @id @default(autoincrement())
+  code String @unique
+  rewardCents Int
+  status QRStatus @default(DRAFT)
+  claimLimit Int @default(1)
+  expiresAt DateTime?
+  createdById BigInt
+  postedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claims QRClaim[]
+  auditLogs AuditLog[] @relation("QRLogs")
+  @@index([status])
+}
+
+model QRClaim {
+  id BigInt @id @default(autoincrement())
+  qrId BigInt
+  userId BigInt
+  status ClaimStatus @default(PENDING)
+  rewardCents Int
+  reason String?
+  claimedAt DateTime @default(now())
+  reviewedAt DateTime?
+  reviewedById BigInt?
+  qr QRCode @relation(fields:[qrId], references:[id], onDelete: Restrict)
+  user User @relation(fields:[userId], references:[id], onDelete: Restrict)
+  @@index([userId, status])
+}
+
+model WalletTransaction {
+  id BigInt @id @default(autoincrement())
+  userId BigInt
+  type TxType
+  amountCents Int
+  balanceBefore Int
+  balanceAfter Int
+  referenceId String @unique
+  metadata Json @default("{}")
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId], references:[id], onDelete: Restrict)
+  @@index([userId, createdAt])
+}
+
+model Withdrawal {
+  id BigInt @id @default(autoincrement())
+  userId BigInt
+  amountCents Int
+  method String
+  paymentDetails Json
+  status WithdrawalStatus @default(PENDING)
+  reviewedById BigInt?
+  reviewNote String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId], references:[id], onDelete: Restrict)
+  @@index([status, createdAt])
+}
+
+model ForceJoinChannel {
+  id BigInt @id @default(autoincrement())
+  channelId BigInt
+  username String?
+  title String?
+  required Boolean @default(true)
+  status ForceJoinStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id BigInt @id @default(autoincrement())
+  userId BigInt
+  type String
+  message String
+  status String @default("QUEUED")
+  createdAt DateTime @default(now())
+  sentAt DateTime?
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id BigInt @id @default(autoincrement())
+  actorId BigInt?
+  action String
+  targetType String
+  targetId String?
+  metadata Json @default("{}")
+  createdAt DateTime @default(now())
+  actor User? @relation("ActorLogs", fields:[actorId], references:[id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([action, targetType])
+}
