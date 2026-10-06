@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Claim Admin</title><style>
+body{margin:0;background:#0b1020;color:#eef2ff;font-family:system-ui}main{max-width:1000px;margin:auto;padding:24px}.card{background:#121a2d;border:1px solid #25304a;border-radius:16px;padding:18px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.value{font-size:28px;font-weight:700}input,button{padding:11px;border-radius:10px;border:1px solid #33415c;background:#0f172a;color:white;margin:4px}button{cursor:pointer}pre{white-space:pre-wrap}
+</style></head><body><main><h1>🎟 QR Claim Admin</h1>
+<div class="card"><h2>Login</h2><input id="u" placeholder="Username"><input id="p" type="password" placeholder="Password"><button onclick="login()">Login</button><span id="msg"></span></div>
+<div id="app" style="display:none"><div class="grid" id="cards"></div><div class="card"><h2>Create QR</h2><input id="reward" type="number" step="0.01" value="0.50"><button onclick="createQR()">Create QR</button><pre id="qrout"></pre></div><div class="card"><h2>Recent Logs</h2><pre id="logs"></pre></div></div>
+<script>
+let token=localStorage.getItem('qr_token')||'';
+async function api(path,opt={}){opt.headers={...(opt.headers||{}),Authorization:'Bearer '+token,'Content-Type':'application/json'};let r=await fetch(path,opt);let d=await r.json();if(!r.ok)throw Error(d.detail||d.error||'Error');return d}
+async function login(){try{let r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.value,password:p.value})});let d=await r.json();if(!r.ok)throw Error(d.detail);token=d.token;localStorage.setItem('qr_token',token);msg.textContent=' ✅';app.style.display='block';load()}catch(e){msg.textContent=' ❌ '+e.message}}
+async function load(){let d=await api('/dashboard');cards.innerHTML=Object.entries(d).map(([k,v])=>`<div class="card"><div>${k}</div><div class="value">${v}</div></div>`).join('');logs.textContent=JSON.stringify(await api('/logs'),null,2)}
+async function createQR(){try{let d=await api('/qr',{method:'POST',body:JSON.stringify({rewardUsd:Number(reward.value)})});qrout.textContent=JSON.stringify(d,null,2)}catch(e){qrout.textContent=e.message}}
+if(token){app.style.display='block';load().catch(()=>{})}
+</script></main></body></html>
