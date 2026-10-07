@@ -9,4 +9,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-4000} & exec python -u -m app.bot"]
+CMD ["sh", "-c", "python -u -m app.bot & exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-4000}"]
