@@ -169,6 +169,8 @@ class SettingsUpdateRequest(BaseModel):
     qr_default_expiry_hours: Optional[int] = None
     maintenance_mode: Optional[bool] = None
     bot_welcome_message: Optional[str] = None
+    auto_approve_enabled: Optional[bool] = None
+    auto_approve_max_usd: Optional[float] = None
 
 
 class ResetRequest(BaseModel):
@@ -200,6 +202,26 @@ async def login(
         user_agent=ua,
     )
     if not admin:
+        await write_audit(
+            session,
+            action=AuditAction.ADMIN_LOGIN_FAILED,
+            metadata={"username": body.username},
+            ip_address=client_ip,
+            user_agent=ua,
+        )
+        # Notify owner via Telegram (best-effort)
+        try:
+            from app.bot import get_bot
+            from app.config import get_settings
+            bot = get_bot()
+            cfg = get_settings()
+            if bot and cfg.owner_telegram_id:
+                await bot.send_message(
+                    cfg.owner_telegram_id,
+                    f"⚠️ Failed admin login\nUser: {body.username}\nIP: {client_ip}",
+                )
+        except Exception:
+            pass
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
 
     token = create_access_token(
@@ -457,6 +479,7 @@ async def list_qrs(
                 "claimed_by_username": getattr(getattr(q, "claimed_by", None), "username", None),
                 "claimed_by_first_name": getattr(getattr(q, "claimed_by", None), "first_name", None),
                 "claimed_by_telegram_id": getattr(getattr(q, "claimed_by", None), "telegram_id", None),
+                "has_image": bool(q.image_png),
             }
             for q in items
         ],
@@ -860,6 +883,8 @@ async def update_settings(
         "qr_default_expiry_hours": ("qr_default_expiry_hours", str),
         "maintenance_mode": ("maintenance_mode", lambda v: str(v).lower()),
         "bot_welcome_message": ("bot_welcome_message", str),
+        "auto_approve_enabled": ("auto_approve_enabled", lambda v: str(v).lower()),
+        "auto_approve_max_usd": ("auto_approve_max_usd", lambda v: str(v)),
     }
     for field, (key, conv) in mapping.items():
         val = getattr(body, field, None)
@@ -971,11 +996,60 @@ async def qr_image(
     qr = await qr_service.get_qr_by_id(session, qr_id)
     if not qr:
         raise HTTPException(404, "QR not found")
-    cfg = get_settings()
-    png = generate_qr_png_bytes(claim_payload(qr.code, cfg.bot_username or None))
+    if qr.image_png:
+        png = qr.image_png
+    else:
+        cfg = get_settings()
+        png = generate_qr_png_bytes(claim_payload(qr.code, cfg.bot_username or None))
     return Response(content=png, media_type="image/png", headers={
         "Content-Disposition": f'attachment; filename="{qr.code}.png"'
     })
+
+
+@router.post("/admin/qrs/{qr_id}/upload-image")
+async def upload_qr_image(
+    qr_id: int,
+    request: Request,
+    admin: Admin = Depends(require_perm("qr.create")),
+    session: AsyncSession = Depends(get_db),
+):
+    """Upload a custom QR / reward image (PNG/JPEG/WebP, max 5MB)."""
+    form = await request.form()
+    file = form.get("file")
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(400, "file is required")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 5MB)")
+    ct = (getattr(file, "content_type", "") or "").lower()
+    name = (getattr(file, "filename", "") or "").lower()
+    ok_type = ct.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+    if not ok_type:
+        raise HTTPException(400, "Only image files allowed (PNG/JPEG/WebP)")
+    qr = await qr_service.get_qr_by_id(session, qr_id)
+    if not qr:
+        raise HTTPException(404, "QR not found")
+    qr.image_png = data
+    session.add(qr)
+    await session.commit()
+    return {"ok": True, "qr_id": qr.id, "code": qr.code, "size": len(data)}
+
+
+@router.delete("/admin/qrs/{qr_id}/image")
+async def delete_qr_image(
+    qr_id: int,
+    admin: Admin = Depends(require_perm("qr.create")),
+    session: AsyncSession = Depends(get_db),
+):
+    qr = await qr_service.get_qr_by_id(session, qr_id)
+    if not qr:
+        raise HTTPException(404, "QR not found")
+    qr.image_png = None
+    session.add(qr)
+    await session.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1105,9 +1179,9 @@ async def broadcast(
             failed += 1
     await write_audit(
         session,
-        action=AuditAction.SETTINGS_CHANGED,
-        admin_id=admin.id,
-        details={"broadcast_sent": sent, "broadcast_failed": failed},
+        action=AuditAction.BROADCAST_SENT,
+        actor_admin_id=admin.id,
+        metadata={"sent": sent, "failed": failed},
     )
     return {"ok": True, "sent": sent, "failed": failed, "total": len(users)}
 
@@ -1135,3 +1209,210 @@ async def change_password(
     session.add(admin)
     await session.commit()
     return {"ok": True, "message": "Password updated"}
+
+
+# ---------------------------------------------------------------------------
+# Campaigns / clone / schedule / tickets / backup
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/campaigns")
+async def campaign_stats(
+    admin: Admin = Depends(require_perm("qr.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import func
+    rows = (
+        await session.execute(
+            select(
+                QRCode.campaign_name,
+                func.count(QRCode.id),
+                func.sum(QRCode.reward_cents),
+                func.count().filter(QRCode.status == QRStatus.CLAIMED),
+                func.count().filter(QRCode.status == QRStatus.AVAILABLE),
+            ).group_by(QRCode.campaign_name)
+        )
+    ).all()
+    return {
+        "items": [
+            {
+                "campaign": r[0] or "(none)",
+                "total_qrs": r[1],
+                "total_reward_cents": int(r[2] or 0),
+                "claimed": r[3],
+                "available": r[4],
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/admin/qrs/{qr_id}/clone")
+async def clone_qr(
+    qr_id: int,
+    quantity: int = 1,
+    admin: Admin = Depends(require_perm("qr.create")),
+    session: AsyncSession = Depends(get_db),
+):
+    quantity = max(1, min(int(quantity or 1), 100))
+    src = await qr_service.get_qr_by_id(session, qr_id)
+    if not src:
+        raise HTTPException(404, "QR not found")
+    created = await qr_service.create_qr_codes(
+        session,
+        reward_cents=src.reward_cents,
+        quantity=quantity,
+        expires_at=src.expires_at,
+        campaign_name=src.campaign_name,
+        description=((src.description or "") + " (clone)").strip(),
+        admin_id=admin.id,
+    )
+    if src.image_png and created:
+        for c in created:
+            c.image_png = src.image_png
+            session.add(c)
+        await session.commit()
+    await write_audit(
+        session,
+        action=AuditAction.QR_CLONED,
+        actor_admin_id=admin.id,
+        target_type="qr",
+        target_id=str(qr_id),
+        metadata={"quantity": quantity},
+    )
+    return {"ok": True, "created": len(created), "codes": [c.code for c in created]}
+
+
+@router.post("/admin/qrs/{qr_id}/schedule")
+async def schedule_qr_post(
+    qr_id: int,
+    body: SchedulePostRequest,
+    admin: Admin = Depends(require_perm("qr.post")),
+    session: AsyncSession = Depends(get_db),
+):
+    from datetime import datetime
+    qr = await qr_service.get_qr_by_id(session, qr_id)
+    if not qr:
+        raise HTTPException(404, "QR not found")
+    try:
+        when = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "Invalid scheduled_at ISO datetime")
+    qr.scheduled_chat_id = body.chat_id
+    qr.scheduled_post_at = when
+    session.add(qr)
+    await session.commit()
+    return {"ok": True, "scheduled_post_at": when.isoformat(), "chat_id": body.chat_id}
+
+
+@router.get("/admin/tickets")
+async def list_tickets(
+    status: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50,
+    admin: Admin = Depends(require_perm("users.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.models import SupportTicket, TicketStatus
+    q = select(SupportTicket).options(selectinload(SupportTicket.user))
+    cq = select(func.count()).select_from(SupportTicket)
+    if status:
+        st = TicketStatus(status)
+        q = q.where(SupportTicket.status == st)
+        cq = cq.where(SupportTicket.status == st)
+    total = (await session.execute(cq)).scalar() or 0
+    items = (
+        await session.execute(
+            q.order_by(SupportTicket.created_at.desc()).offset(offset).limit(limit)
+        )
+    ).scalars().all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": t.id,
+                "subject": t.subject,
+                "message": t.message,
+                "status": t.status.value,
+                "admin_reply": t.admin_reply,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "username": t.user.username if t.user else None,
+                "telegram_id": t.user.telegram_id if t.user else None,
+                "first_name": t.user.first_name if t.user else None,
+            }
+            for t in items
+        ],
+    }
+
+
+class TicketReplyRequest(BaseModel):
+    reply: str = Field(..., min_length=1)
+    close: bool = False
+
+
+@router.post("/admin/tickets/{tid}/reply")
+async def reply_ticket(
+    tid: int,
+    body: TicketReplyRequest,
+    admin: Admin = Depends(require_perm("users.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.models import SupportTicket, TicketStatus
+    from app.bot import get_bot
+
+    t = (
+        await session.execute(
+            select(SupportTicket)
+            .options(selectinload(SupportTicket.user))
+            .where(SupportTicket.id == tid)
+        )
+    ).scalar_one_or_none()
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    t.admin_reply = body.reply
+    t.handled_by_admin_id = admin.id
+    t.status = TicketStatus.CLOSED if body.close else TicketStatus.IN_PROGRESS
+    session.add(t)
+    await session.commit()
+    bot = get_bot()
+    if bot and t.user:
+        try:
+            await bot.send_message(
+                t.user.telegram_id,
+                f"💬 <b>Support Reply</b>\n\nTicket #{t.id}: {t.subject}\n\n{body.reply}",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    await write_audit(
+        session,
+        action=AuditAction.TICKET_REPLIED,
+        actor_admin_id=admin.id,
+        target_type="ticket",
+        target_id=str(tid),
+        metadata={"ticket_id": tid},
+    )
+    return {"ok": True, "status": t.status.value}
+
+
+@router.get("/admin/backup/summary")
+async def backup_summary(
+    admin: Admin = Depends(require_perm("reset.activity")),
+    session: AsyncSession = Depends(get_db),
+):
+    """OWNER-oriented snapshot counts for backup awareness."""
+    from app.models import User, Withdrawal, SupportTicket
+    users = (await session.execute(select(func.count()).select_from(User))).scalar() or 0
+    qrs = (await session.execute(select(func.count()).select_from(QRCode))).scalar() or 0
+    claims = (await session.execute(select(func.count()).select_from(QRClaim))).scalar() or 0
+    withdrawals = (await session.execute(select(func.count()).select_from(Withdrawal))).scalar() or 0
+    return {
+        "users": users,
+        "qrs": qrs,
+        "claims": claims,
+        "withdrawals": withdrawals,
+        "exports": {
+            "claims": "/api/admin/export/claims",
+            "qrs": "/api/admin/export/qrs",
+            "withdrawals": "/api/admin/export/withdrawals",
+        },
+    }

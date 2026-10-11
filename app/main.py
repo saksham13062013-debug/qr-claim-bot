@@ -58,7 +58,62 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to start Telegram bot: %s", exc)
         # Continue serving admin panel even if bot fails
+
+    import asyncio
+    from datetime import datetime, timezone
+
+    async def process_scheduled_posts():
+        while True:
+            try:
+                from sqlalchemy import select
+                from app.models import QRCode, QRStatus
+                from app.bot import get_bot, claim_button
+                from app.services import qr_service
+                bot = get_bot()
+                if bot:
+                    async with get_db_context() as session:
+                        now = datetime.now(timezone.utc)
+                        rows = (
+                            await session.execute(
+                                select(QRCode).where(
+                                    QRCode.scheduled_post_at.is_not(None),
+                                    QRCode.scheduled_post_at <= now,
+                                    QRCode.status.in_([QRStatus.AVAILABLE, QRStatus.RECLAIMED]),
+                                ).limit(20)
+                            )
+                        ).scalars().all()
+                        for qr in rows:
+                            chat_id = qr.scheduled_chat_id
+                            qr.scheduled_post_at = None
+                            qr.scheduled_chat_id = None
+                            try:
+                                await qr_service.mark_qr_posted(session, qr, qr.created_by_admin_id or 0)
+                            except Exception:
+                                pass
+                            if chat_id:
+                                try:
+                                    msg = (
+                                        f"🎁 <b>NEW QR REWARD</b>\n\n"
+                                        f"🎟 QR: <code>{qr.code}</code>\n"
+                                        f"💰 Reward: ${qr.reward_cents / 100:.2f}\n"
+                                        f"🔥 One user only!"
+                                    )
+                                    await bot.send_message(
+                                        chat_id=chat_id,
+                                        text=msg,
+                                        reply_markup=claim_button(qr.code),
+                                    )
+                                except Exception as e:
+                                    logger.warning("Scheduled post failed: %s", e)
+                            session.add(qr)
+                        await session.commit()
+            except Exception as e:
+                logger.warning("schedule loop: %s", e)
+            await asyncio.sleep(30)
+
+    sched_task = asyncio.create_task(process_scheduled_posts())
     yield
+    sched_task.cancel()
     await stop_bot()
     await close_db()
     logger.info("Application shut down")

@@ -261,3 +261,39 @@ async def list_claims(
     q = q.order_by(QRClaim.created_at.desc()).offset(offset).limit(limit)
     result = await session.execute(q)
     return result.scalars().all(), total
+
+
+async def try_auto_approve(
+    session: AsyncSession,
+    claim_id: int,
+) -> Optional[QRClaim]:
+    """If auto-approve is enabled and reward <= max, approve as system (admin_id=None path uses 0)."""
+    from app.services import settings_service
+
+    enabled = await settings_service.get_setting_bool(session, "auto_approve_enabled", False)
+    if not enabled:
+        return None
+    max_usd = await settings_service.get_setting(session, "auto_approve_max_usd")
+    try:
+        max_cents = int(round(float(max_usd or "0") * 100))
+    except (TypeError, ValueError):
+        max_cents = 0
+    if max_cents <= 0:
+        return None
+
+    claim = await get_claim_by_id(session, claim_id)
+    if not claim or claim.status != ClaimStatus.PENDING:
+        return None
+    if claim.reward_cents > max_cents:
+        return None
+
+    # Approve with system admin id 0 not allowed by FK – use first OWNER admin
+    from app.models import Admin, AdminRole
+    owner = (
+        await session.execute(
+            select(Admin).where(Admin.role == AdminRole.OWNER).limit(1)
+        )
+    ).scalar_one_or_none()
+    if not owner:
+        return None
+    return await approve_claim(session, claim_id, owner.id)

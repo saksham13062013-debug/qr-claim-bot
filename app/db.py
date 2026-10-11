@@ -66,8 +66,20 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Create all tables if they do not exist. Safe for production startup."""
+    from sqlalchemy import text
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Safe additive migrations for existing deployments
+        await conn.execute(text(
+            "ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS image_png BYTEA"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS scheduled_post_at TIMESTAMPTZ"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS scheduled_chat_id VARCHAR(64)"
+        ))
     logger.info("Database tables initialized")
 
 

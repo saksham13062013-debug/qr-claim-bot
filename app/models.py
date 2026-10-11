@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import (
+    LargeBinary,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -125,6 +126,10 @@ class AuditAction(str, enum.Enum):
     RESET_ACTIVITY = "RESET_ACTIVITY"
     RESET_QR_DATA = "RESET_QR_DATA"
     PERMISSION_CHANGED = "PERMISSION_CHANGED"
+    TICKET_CREATED = "TICKET_CREATED"
+    TICKET_REPLIED = "TICKET_REPLIED"
+    BROADCAST_SENT = "BROADCAST_SENT"
+    QR_CLONED = "QR_CLONED"
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +234,9 @@ class QRCode(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    image_png: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    scheduled_post_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    scheduled_chat_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     claims: Mapped[list["QRClaim"]] = relationship("QRClaim", back_populates="qr_code")
     created_by: Mapped[Optional["Admin"]] = relationship("Admin", foreign_keys=[created_by_admin_id])
@@ -466,3 +474,36 @@ class ResetRecord(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+
+
+class TicketStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    CLOSED = "CLOSED"
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[TicketStatus] = mapped_column(
+        Enum(TicketStatus, name="ticket_status", create_constraint=True),
+        default=TicketStatus.OPEN,
+        nullable=False,
+        index=True,
+    )
+    admin_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    handled_by_admin_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("admins.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User")

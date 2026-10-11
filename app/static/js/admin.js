@@ -189,6 +189,8 @@ const PAGE_META = {
   claims: { title: "Claims", sub: "Review and approve reward claims" },
   withdrawals: { title: "Withdrawals", sub: "Process payout requests" },
   channels: { title: "Channels", sub: "Force-join channel requirements" },
+  campaigns: { title: "Campaigns", sub: "Campaign performance overview" },
+  tickets: { title: "Support Tickets", sub: "User support messages" },
   broadcast: { title: "Broadcast", sub: "Send a message to all bot users" },
   settings: { title: "Settings", sub: "Bot configuration & defaults" },
   audit: { title: "Audit Log", sub: "Security and action history" },
@@ -226,6 +228,8 @@ async function loadPage(page) {
       claims: renderClaims,
       withdrawals: renderWithdrawals,
       channels: renderChannels,
+      campaigns: renderCampaigns,
+      tickets: renderTickets,
       broadcast: renderBroadcast,
       settings: renderSettings,
       audit: renderAudit,
@@ -285,6 +289,7 @@ function makeChart(id, rows, key, color) {
 /* ---------- Dashboard ---------- */
 
 async function renderDashboard() {
+
   const data = await api("/admin/dashboard?days=30");
   const s = data.stats;
 
@@ -456,6 +461,7 @@ async function toggleUser(id, action) {
 
 async function renderQRs(status = "") {
   document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-outline btn-sm" onclick="exportQRs()">⬇ Export CSV</button>
     <button class="btn btn-primary btn-sm" onclick="showCreateQR()">+ Create QR</button>
   `;
   const data = await api(`/admin/qrs?offset=${offset}&limit=${LIMIT}${status ? "&status=" + status : ""}`);
@@ -468,9 +474,12 @@ async function renderQRs(status = "") {
       <td>${escapeHtml(q.campaign_name || "—")}</td>
       <td>${fmtDate(q.created_at)}</td>
       <td>${fmtDate(q.expires_at)}</td>
-      <td>${q.claimed_by_user_id || "—"}</td>
+      <td>${q.claimed_by_user_id ? tgUserLink(q.claimed_by_username, q.claimed_by_telegram_id, q.claimed_by_first_name, null) : "—"}</td>
       <td>
         <div class="btn-group">
+          <button class="btn btn-sm btn-outline" onclick="uploadQRImage(${q.id})" title="Upload your QR image">${q.has_image ? "🖼 Change" : "📤 Upload"}</button>
+          <button class="btn btn-sm btn-outline" onclick="cloneQR(${q.id})">Clone</button>
+          <button class="btn btn-sm btn-outline" onclick="scheduleQR(${q.id})">⏱</button>
           ${["AVAILABLE","RECLAIMED"].includes(q.status)
             ? `<button class="btn btn-sm btn-primary" onclick="postQR(${q.id})">Post</button>` : ""}
           ${!["DISABLED","EXPIRED"].includes(q.status)
@@ -653,6 +662,10 @@ async function holdClaim(id) {
 /* ---------- Withdrawals ---------- */
 
 async function renderWithdrawals(status = "PENDING") {
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-outline btn-sm" onclick="exportWithdrawals()">⬇ Export CSV</button>
+  `;
+
   const data = await api(`/admin/withdrawals?offset=${offset}&limit=${LIMIT}${status ? "&status=" + status : ""}`);
   const rows = data.items.map((w) => `
     <tr>
@@ -873,6 +886,13 @@ async function renderSettings() {
         <div class="form-group">
           <label class="form-check"><input type="checkbox" id="sMaint" ${s.maintenance_mode?"checked":""} /> Maintenance Mode</label>
         </div>
+        <div class="form-group">
+          <label class="form-check"><input type="checkbox" id="sAutoApprove" ${s.auto_approve_enabled?"checked":""} /> Auto-approve claims</label>
+        </div>
+        <div class="form-group">
+          <label>Auto-approve max (USD)</label>
+          <input type="number" step="0.01" id="sAutoMax" value="${Number(s.auto_approve_max_usd||0).toFixed(2)}" />
+        </div>
         <div class="form-group full">
           <label>Bot Welcome Message</label>
           <textarea id="sWelcome" rows="4">${escapeHtml(s.bot_welcome_message || "")}</textarea>
@@ -896,6 +916,8 @@ async function renderSettings() {
           force_join_enabled: document.getElementById("sForce").checked,
           claim_approval_required: document.getElementById("sApproval").checked,
           maintenance_mode: document.getElementById("sMaint").checked,
+          auto_approve_enabled: document.getElementById("sAutoApprove").checked,
+          auto_approve_max_usd: parseFloat(document.getElementById("sAutoMax").value),
           bot_welcome_message: document.getElementById("sWelcome").value,
         },
       });
@@ -1085,3 +1107,142 @@ function exportQRs() {
 function exportWithdrawals() {
   window.open("/api/admin/export/withdrawals", "_blank");
 }
+
+
+async function uploadQRImage(qrId) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp";
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast("Max 5MB", "error");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const csrf = localStorage.getItem("csrf_token");
+      const res = await fetch(API + `/admin/qrs/${qrId}/upload-image`, {
+        method: "POST",
+        credentials: "include",
+        headers: csrf ? { "X-CSRF-Token": csrf } : {},
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.message || "Upload failed");
+      toast("QR image uploaded");
+      renderQRs();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  };
+  input.click();
+}
+
+
+async function renderCampaigns() {
+  document.getElementById("topbarActions").innerHTML = "";
+  const data = await api("/admin/campaigns");
+  const rows = (data.items || []).map(c => `
+    <tr>
+      <td>${escapeHtml(c.campaign)}</td>
+      <td>${c.total_qrs}</td>
+      <td>${c.available}</td>
+      <td>${c.claimed}</td>
+      <td><strong>${cents(c.total_reward_cents)}</strong></td>
+    </tr>`).join("");
+  document.getElementById("content").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>Campaign</th><th>Total QR</th><th>Available</th><th>Claimed</th><th>Total Rewards</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5">${emptyState("📊","No campaigns")}</td></tr>`}</tbody>
+    </table></div>`;
+}
+
+async function renderTickets(status = "OPEN") {
+  document.getElementById("topbarActions").innerHTML = "";
+  const data = await api(`/admin/tickets?offset=${offset}&limit=${LIMIT}${status ? "&status="+status : ""}`);
+  const rows = (data.items || []).map(t => `
+    <tr>
+      <td>${t.id}</td>
+      <td>${tgUserLink(t.username, t.telegram_id, t.first_name, null)}</td>
+      <td>${escapeHtml(t.subject)}</td>
+      <td>${badge(t.status)}</td>
+      <td>${fmtDate(t.created_at)}</td>
+      <td><button class="btn btn-sm btn-primary" onclick='replyTicket(${t.id})'>Reply</button></td>
+    </tr>`).join("");
+  document.getElementById("content").innerHTML = `
+    <div class="toolbar">
+      <select onchange="offset=0;renderTickets(this.value)">
+        ${["OPEN","IN_PROGRESS","CLOSED",""].map(s => `<option value="${s}" ${s===status?"selected":""}>${s||"All"}</option>`).join("")}
+      </select>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>User</th><th>Subject</th><th>Status</th><th>Created</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">${emptyState("🆘","No tickets")}</td></tr>`}</tbody>
+    </table></div>
+    ${pagination(data.total)}`;
+}
+
+function replyTicket(id) {
+  openModal("Reply to Ticket #"+id, `
+    <div class="form-group"><label>Reply</label><textarea id="ticketReply" rows="4"></textarea></div>
+    <label class="check-row"><input type="checkbox" id="ticketClose" checked> Close ticket</label>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doReplyTicket(${id})">Send</button>
+  `);
+}
+
+async function doReplyTicket(id) {
+  const reply = document.getElementById("ticketReply").value.trim();
+  if (!reply) { toast("Reply required", "error"); return; }
+  try {
+    await api(`/admin/tickets/${id}/reply`, { method: "POST", body: {
+      reply, close: document.getElementById("ticketClose").checked
+    }});
+    toast("Reply sent");
+    closeModal();
+    renderTickets();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function cloneQR(id) {
+  const q = prompt("How many copies?", "1");
+  if (!q) return;
+  try {
+    const res = await api(`/admin/qrs/${id}/clone?quantity=${encodeURIComponent(q)}`, { method: "POST" });
+    toast(`Cloned ${res.created} QR(s)`);
+    renderQRs();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function scheduleQR(id) {
+  openModal("Schedule Post", `
+    <div class="form-group"><label>Channel / Chat ID</label><input id="schedChat" placeholder="-100..."></div>
+    <div class="form-group"><label>When (local)</label><input type="datetime-local" id="schedWhen"></div>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doScheduleQR(${id})">Schedule</button>
+  `);
+}
+
+async function doScheduleQR(id) {
+  const chat_id = document.getElementById("schedChat").value.trim();
+  const local = document.getElementById("schedWhen").value;
+  if (!chat_id || !local) { toast("Chat ID and time required", "error"); return; }
+  const scheduled_at = new Date(local).toISOString();
+  try {
+    await api(`/admin/qrs/${id}/schedule`, { method: "POST", body: { chat_id, scheduled_at } });
+    toast("Scheduled");
+    closeModal();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+/* DASH_REFRESH */
+setInterval(() => {
+  if (typeof currentPage !== "undefined" && currentPage === "dashboard") {
+    renderDashboard().catch(() => {});
+  }
+}, 60000);

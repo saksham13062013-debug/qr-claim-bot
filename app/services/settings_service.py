@@ -108,6 +108,10 @@ async def get_all_settings(session: AsyncSession) -> dict[str, Any]:
             db_map.get("maintenance_mode", str(settings.maintenance_mode)).lower()
             in ("true", "1", "yes")
         ),
+        "auto_approve_enabled": (
+            db_map.get("auto_approve_enabled", "false").lower() in ("1", "true", "yes")
+        ),
+        "auto_approve_max_usd": float(db_map.get("auto_approve_max_usd", "0") or 0),
         "bot_welcome_message": db_map.get(
             "bot_welcome_message", settings.bot_welcome_message
         ),
@@ -125,6 +129,8 @@ async def seed_default_settings(session: AsyncSession) -> None:
         "qr_default_expiry_hours": str(settings.qr_default_expiry_hours),
         "maintenance_mode": str(settings.maintenance_mode).lower(),
         "bot_welcome_message": settings.bot_welcome_message,
+        "auto_approve_enabled": "false",
+        "auto_approve_max_usd": "0",
     }
     for key, value in defaults.items():
         existing = await get_setting(session, key)

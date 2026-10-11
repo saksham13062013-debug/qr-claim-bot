@@ -118,6 +118,10 @@ class WithdrawStates(StatesGroup):
     waiting_amount = State()
 
 
+class SupportStates(StatesGroup):
+    waiting_message = State()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -410,8 +414,11 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             f"📌 Status: {qr.status.value}\n\n"
             f"Scan the QR or press <b>Submit Claim</b> below to continue."
         )
-        payload = claim_payload(qr.code, settings.bot_username or None)
-        png = generate_qr_png_bytes(payload)
+        if qr.image_png:
+            png = qr.image_png
+        else:
+            payload = claim_payload(qr.code, settings.bot_username or None)
+            png = generate_qr_png_bytes(payload)
         photo = BufferedInputFile(png, filename=f"{qr.code}.png")
 
         # target can be Message or CallbackQuery.message
@@ -523,14 +530,28 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
             claim, qr = await qr_service.claim_qr_atomic(
                 session, code=code, user_id=db_user.id
             )
+            # Auto-approve small rewards if enabled
+            from app.services import claim_service as _claim_svc
+            auto = await _claim_svc.try_auto_approve(session, claim.id)
+            if auto:
+                claim = auto
             # Edit caption / send confirmation
-            text = (
-                f"⏳ <b>Claim Submitted</b>\n\n"
-                f"🎟 QR: <code>{qr.code}</code>\n"
-                f"💰 Reward: {cents_to_usd(qr.reward_cents)}\n"
-                f"📌 Status: Pending Approval\n\n"
-                f"Your claim is waiting for admin approval."
-            )
+            if claim.status.value == "APPROVED":
+                text = (
+                    f"✅ <b>Claim Approved</b>\n\n"
+                    f"🎟 QR: <code>{qr.code}</code>\n"
+                    f"💰 Reward: {cents_to_usd(qr.reward_cents)}\n"
+                    f"📌 Status: Approved (auto)\n\n"
+                    f"Reward credited to your wallet."
+                )
+            else:
+                text = (
+                    f"⏳ <b>Claim Submitted</b>\n\n"
+                    f"🎟 QR: <code>{qr.code}</code>\n"
+                    f"💰 Reward: {cents_to_usd(qr.reward_cents)}\n"
+                    f"📌 Status: Pending Approval\n\n"
+                    f"Your claim is waiting for admin approval."
+                )
             try:
                 await callback.message.edit_caption(
                     caption=text, parse_mode=ParseMode.HTML, reply_markup=None
@@ -676,3 +697,44 @@ async def stop_bot() -> None:
 
 def get_bot() -> Optional[Bot]:
     return _bot
+
+
+@router.message(F.text == "🆘 Support")
+@router.message(Command("support"))
+async def support_start(message: Message, state: FSMContext):
+    await state.set_state(SupportStates.waiting_message)
+    await message.answer(
+        "🆘 <b>Support</b>\n\nSend your message in one text (problem / question).",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(SupportStates.waiting_message)
+async def support_message(message: Message, state: FSMContext):
+    from app.models import SupportTicket, TicketStatus
+    text = (message.text or "").strip()
+    if not text or len(text) < 3:
+        await message.answer("Please send a longer message.")
+        return
+    async with get_db_context() as session:
+        user = await user_service.get_or_create_user(
+            session,
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+        )
+        ticket = SupportTicket(
+            user_id=user.id,
+            subject=text[:80],
+            message=text[:4000],
+            status=TicketStatus.OPEN,
+        )
+        session.add(ticket)
+        await session.commit()
+        tid = ticket.id
+    await state.clear()
+    await message.answer(
+        f"✅ Ticket #{tid} created. An admin will reply here.",
+        reply_markup=main_menu_kb(),
+    )
