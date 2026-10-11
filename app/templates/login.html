@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login – QR Claim Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/admin.css" />
+</head>
+<body class="login-page">
+  <div class="login-bg">
+    <div class="login-orb login-orb-1"></div>
+    <div class="login-orb login-orb-2"></div>
+  </div>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">🎁</div>
+      <h1>QR Claim Admin</h1>
+      <p class="subtitle">Sign in to manage rewards &amp; claims</p>
+    </div>
+    <form id="loginForm" autocomplete="on">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <div class="input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter username" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter password" />
+        </div>
+      </div>
+      <div id="error" class="error-banner hidden"></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" id="loginBtn">
+        <span class="btn-text">Sign In</span>
+        <span class="btn-loader hidden">Signing in…</span>
+      </button>
+    </form>
+    <p class="login-footer">Secure admin access · Session encrypted</p>
+  </div>
+  <script src="/static/js/login.js"></script>
+</body>
+</html>
