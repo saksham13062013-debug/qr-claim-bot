@@ -987,3 +987,25 @@ select {
   .login-card { padding: 1.75rem 1.35rem; }
   .toast-container { left: 1rem; right: 1rem; max-width: none; }
 }
+
+/* Telegram profile links */
+a.tg-link {
+  color: #60a5fa;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.tg-link:hover {
+  text-decoration: underline;
+  color: #93c5fd;
+}
+.muted-xs {
+  font-size: 0.75rem;
+  color: var(--muted, #94a3b8);
+  margin-top: 2px;
+}
+code.copyable {
+  cursor: pointer;
+}
+code.copyable:hover {
+  background: rgba(59, 130, 246, 0.2);
+}

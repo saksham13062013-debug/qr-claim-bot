@@ -67,6 +67,7 @@ function badge(status) {
   return `<span class="badge badge-${s}">${status}</span>`;
 }
 
+
 function escapeHtml(str) {
   if (!str) return "";
   return String(str)
@@ -75,6 +76,37 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+/** Clickable Telegram profile link */
+function tgUserLink(username, telegramId, firstName, lastName) {
+  const name = [firstName, lastName].filter(Boolean).join(" ").trim()
+    || (username ? "@" + username : null)
+    || (telegramId ? "User " + telegramId : "—");
+  if (!telegramId && !username) return escapeHtml(name);
+  const href = username
+    ? `https://t.me/${encodeURIComponent(username.replace(/^@/, ""))}`
+    : `tg://user?id=${telegramId}`;
+  const sub = username ? `@${escapeHtml(username.replace(/^@/, ""))}` : (telegramId ? `ID ${telegramId}` : "");
+  return `<a class="tg-link" href="${href}" target="_blank" rel="noopener" title="Open Telegram profile">${escapeHtml(name)}</a>${sub ? `<div class="muted-xs">${sub}</div>` : ""}`;
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast("Copied: " + text)).catch(() => toast("Copy failed", "error"));
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map(r => r.map(c => {
+    const s = String(c ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -157,6 +189,7 @@ const PAGE_META = {
   claims: { title: "Claims", sub: "Review and approve reward claims" },
   withdrawals: { title: "Withdrawals", sub: "Process payout requests" },
   channels: { title: "Channels", sub: "Force-join channel requirements" },
+  broadcast: { title: "Broadcast", sub: "Send a message to all bot users" },
   settings: { title: "Settings", sub: "Bot configuration & defaults" },
   audit: { title: "Audit Log", sub: "Security and action history" },
   reset: { title: "Reset", sub: "Owner-only destructive operations" },
@@ -193,6 +226,7 @@ async function loadPage(page) {
       claims: renderClaims,
       withdrawals: renderWithdrawals,
       channels: renderChannels,
+      broadcast: renderBroadcast,
       settings: renderSettings,
       audit: renderAudit,
       reset: renderReset,
@@ -428,7 +462,7 @@ async function renderQRs(status = "") {
 
   const rows = data.items.map((q) => `
     <tr>
-      <td><code>${escapeHtml(q.code)}</code></td>
+      <td><code class="copyable" onclick="copyText('${escapeHtml(q.code)}')" title="Click to copy">${escapeHtml(q.code)}</code> <button class="btn btn-sm btn-outline" onclick="window.open('/api/admin/qrs/${q.id}/image','_blank')" title="Download QR image">🖼</button></td>
       <td><strong>${cents(q.reward_cents)}</strong></td>
       <td>${badge(q.status)}</td>
       <td>${escapeHtml(q.campaign_name || "—")}</td>
@@ -533,12 +567,15 @@ async function disableQR(id) {
 /* ---------- Claims ---------- */
 
 async function renderClaims(status = "PENDING") {
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-outline btn-sm" onclick="exportClaims()">⬇ Export CSV</button>
+  `;
   const data = await api(`/admin/claims?offset=${offset}&limit=${LIMIT}${status ? "&status=" + status : ""}`);
   const rows = data.items.map((c) => `
     <tr>
       <td>${c.id}</td>
       <td><code>${escapeHtml(c.qr_code || "—")}</code></td>
-      <td>@${escapeHtml(c.username || String(c.telegram_id))}</td>
+      <td>${tgUserLink(c.username, c.telegram_id, c.first_name, c.last_name)}</td>
       <td><strong>${cents(c.reward_cents)}</strong></td>
       <td>${badge(c.status)}</td>
       <td>${fmtDate(c.created_at)}</td>
@@ -620,7 +657,7 @@ async function renderWithdrawals(status = "PENDING") {
   const rows = data.items.map((w) => `
     <tr>
       <td>${w.id}</td>
-      <td>@${escapeHtml(w.username || String(w.telegram_id))}</td>
+      <td>${tgUserLink(w.username, w.telegram_id, w.first_name, w.last_name)}</td>
       <td><strong>${cents(w.amount_cents)}</strong></td>
       <td>${badge(w.status)}</td>
       <td>${fmtDate(w.created_at)}</td>
@@ -865,6 +902,21 @@ async function renderSettings() {
       toast("Settings saved");
     } catch (err) { toast(err.message, "error"); }
   };
+
+  // Change password card
+  const wrap = document.getElementById("content") || document.getElementById("content");
+  if (wrap) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.cssText = "margin-top:1.5rem;max-width:480px";
+    card.innerHTML = `
+      <h3 style="margin-top:0">🔒 Change Password</h3>
+      <div class="form-group"><label>Current password</label><input type="password" id="curPass" autocomplete="current-password"></div>
+      <div class="form-group"><label>New password (min 8)</label><input type="password" id="newPass" minlength="8" autocomplete="new-password"></div>
+      <button type="button" class="btn btn-outline" onclick="doChangePassword()">Update Password</button>
+    `;
+    wrap.appendChild(card);
+  }
 }
 
 /* ---------- Audit ---------- */
@@ -974,3 +1026,62 @@ function pagination(total) {
     window.location.href = "/";
   }
 })();
+
+
+/* ---------- Broadcast ---------- */
+
+async function renderBroadcast() {
+  document.getElementById("topbarActions").innerHTML = "";
+  document.getElementById("content").innerHTML = `
+    <div class="card" style="max-width:640px">
+      <h3 style="margin-top:0">📣 Broadcast Message</h3>
+      <p class="muted">Sends a Telegram message to all active users. Use sparingly.</p>
+      <div class="form-group">
+        <label>Message (HTML allowed: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</label>
+        <textarea id="broadcastMsg" rows="6" placeholder="Hello! New rewards are live..."></textarea>
+      </div>
+      <label class="check-row"><input type="checkbox" id="broadcastActive" checked> Only active users</label>
+      <div style="margin-top:1rem">
+        <button class="btn btn-primary" onclick="doBroadcast()">Send Broadcast</button>
+      </div>
+    </div>
+  `;
+}
+
+async function doBroadcast() {
+  const message = document.getElementById("broadcastMsg").value.trim();
+  if (!message) { toast("Message required", "error"); return; }
+  if (!confirm("Send this message to all matching users?")) return;
+  try {
+    const res = await api("/admin/broadcast", {
+      method: "POST",
+      body: {
+        message,
+        only_active: document.getElementById("broadcastActive").checked,
+      },
+    });
+    toast(`Sent: ${res.sent}, Failed: ${res.failed}, Total: ${res.total}`);
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function doChangePassword() {
+  const cur = document.getElementById("curPass").value;
+  const nw = document.getElementById("newPass").value;
+  if (!cur || !nw || nw.length < 8) { toast("New password min 8 chars", "error"); return; }
+  try {
+    await api("/admin/change-password", { method: "POST", body: { current_password: cur, new_password: nw } });
+    toast("Password changed");
+    document.getElementById("curPass").value = "";
+    document.getElementById("newPass").value = "";
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function exportClaims() {
+  window.open("/api/admin/export/claims", "_blank");
+}
+function exportQRs() {
+  window.open("/api/admin/export/qrs", "_blank");
+}
+function exportWithdrawals() {
+  window.open("/api/admin/export/withdrawals", "_blank");
+}

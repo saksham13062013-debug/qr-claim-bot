@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -90,6 +91,25 @@ def claim_button(code: str) -> InlineKeyboardMarkup:
     )
 
 
+def submit_claim_button(code: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Submit Claim",
+                    callback_data=f"submit_claim:{code}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Cancel",
+                    callback_data="cancel_claim",
+                )
+            ],
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # FSM
 # ---------------------------------------------------------------------------
@@ -129,7 +149,8 @@ def cents_to_usd(cents: int) -> str:
 # ---------------------------------------------------------------------------
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, bot: Bot):
+    """Handle /start and optional deep-link /start claim_QR-XXXX."""
     async with get_db_context() as session:
         await user_service.get_or_create_user(
             session,
@@ -141,6 +162,16 @@ async def cmd_start(message: Message):
         welcome = await settings_service.get_setting(session, "bot_welcome_message")
         if not welcome:
             welcome = settings.bot_welcome_message
+
+    # Deep link: /start claim_QR-XXXX
+    parts = (message.text or "").split(maxsplit=1)
+    payload = parts[1].strip() if len(parts) > 1 else ""
+    if payload.startswith("claim_"):
+        code = payload[len("claim_"):].strip().upper()
+        if code:
+            await message.answer(welcome, reply_markup=main_menu_kb())
+            await _send_claim_preview(message, bot, code)
+            return
 
     await message.answer(
         welcome,
@@ -347,11 +378,72 @@ async def withdraw_amount(message: Message, state: FSMContext):
 
 
 # ---------------------------------------------------------------------------
-# Claim callback
+# Claim helpers + callbacks (preview QR image → Submit)
 # ---------------------------------------------------------------------------
+
+async def _send_claim_preview(target, bot: Bot, code: str) -> None:
+    """Send QR image + details + Submit Claim button to user."""
+    from app.services.qr_image_service import claim_payload, generate_qr_png_bytes
+
+    code = code.upper().strip()
+    async with get_db_context() as session:
+        qr = await qr_service.get_qr_by_code(session, code)
+        if not qr:
+            await target.answer("❌ Invalid or unknown QR code.")
+            return
+        if qr.status.value in ("CLAIMED", "PENDING", "APPROVED"):
+            await target.answer(
+                "❌ <b>QR Already Claimed</b>\n\n"
+                "This QR has already been successfully claimed by another user.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if qr.status.value in ("DISABLED", "EXPIRED", "REJECTED"):
+            await target.answer(f"❌ This QR is not available ({qr.status.value}).")
+            return
+
+        reward = cents_to_usd(qr.reward_cents)
+        caption = (
+            f"🎁 <b>QR Reward Ready</b>\n\n"
+            f"🎟 Code: <code>{qr.code}</code>\n"
+            f"💰 Reward: <b>{reward}</b>\n"
+            f"📌 Status: {qr.status.value}\n\n"
+            f"Scan the QR or press <b>Submit Claim</b> below to continue."
+        )
+        payload = claim_payload(qr.code, settings.bot_username or None)
+        png = generate_qr_png_bytes(payload)
+        photo = BufferedInputFile(png, filename=f"{qr.code}.png")
+
+        # target can be Message or CallbackQuery.message
+        send = target.answer_photo if hasattr(target, "answer_photo") else target.answer
+        try:
+            if hasattr(target, "answer_photo"):
+                await target.answer_photo(
+                    photo=photo,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=submit_claim_button(qr.code),
+                )
+            else:
+                await bot.send_photo(
+                    chat_id=target.chat.id,
+                    photo=photo,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=submit_claim_button(qr.code),
+                )
+        except Exception:
+            # Fallback text-only if photo fails
+            await target.answer(
+                caption,
+                parse_mode=ParseMode.HTML,
+                reply_markup=submit_claim_button(qr.code),
+            )
+
 
 @router.callback_query(F.data.startswith("claim:"))
 async def claim_callback(callback: CallbackQuery, bot: Bot):
+    """Step 1: show QR image + Submit button (does not claim yet)."""
     code = callback.data.split(":", 1)[1]
     user = callback.from_user
     await callback.answer()
@@ -368,7 +460,6 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
             await callback.message.answer("Your account is disabled.")
             return
 
-        # Maintenance check
         maint = await settings_service.get_setting_bool(
             session, "maintenance_mode", False
         )
@@ -378,7 +469,6 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
             )
             return
 
-        # Force join
         force_enabled = await force_join_service.is_force_join_enabled(session)
         if force_enabled:
             channels = await force_join_service.get_active_required_channels(session)
@@ -391,22 +481,62 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                         "📢 Please join all required channels first.",
                         reply_markup=force_join_kb(missing),
                     )
-                    # Store pending claim code in a simple way – user will re-click
                     return
 
-        # Atomic claim
+    await _send_claim_preview(callback.message, bot, code)
+
+
+@router.callback_query(F.data.startswith("submit_claim:"))
+async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
+    """Step 2: user pressed Submit Claim → atomic claim."""
+    code = callback.data.split(":", 1)[1]
+    user = callback.from_user
+    await callback.answer("Submitting…")
+
+    async with get_db_context() as session:
+        db_user = await user_service.get_or_create_user(
+            session,
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
+        if db_user.status != UserStatus.ACTIVE:
+            await callback.message.answer("Your account is disabled.")
+            return
+
+        force_enabled = await force_join_service.is_force_join_enabled(session)
+        if force_enabled:
+            channels = await force_join_service.get_active_required_channels(session)
+            if channels:
+                all_ok, missing = await force_join_service.check_membership(
+                    bot, user.id, channels
+                )
+                if not all_ok:
+                    await callback.message.answer(
+                        "📢 Please join all required channels first.",
+                        reply_markup=force_join_kb(missing),
+                    )
+                    return
+
         try:
             claim, qr = await qr_service.claim_qr_atomic(
                 session, code=code, user_id=db_user.id
             )
-            await callback.message.answer(
+            # Edit caption / send confirmation
+            text = (
                 f"⏳ <b>Claim Submitted</b>\n\n"
-                f"🎟 QR: {qr.code}\n"
+                f"🎟 QR: <code>{qr.code}</code>\n"
                 f"💰 Reward: {cents_to_usd(qr.reward_cents)}\n"
                 f"📌 Status: Pending Approval\n\n"
-                f"Your claim is waiting for admin approval.",
-                parse_mode=ParseMode.HTML,
+                f"Your claim is waiting for admin approval."
             )
+            try:
+                await callback.message.edit_caption(
+                    caption=text, parse_mode=ParseMode.HTML, reply_markup=None
+                )
+            except Exception:
+                await callback.message.answer(text, parse_mode=ParseMode.HTML)
         except ValueError as e:
             err = str(e)
             if err == "QR_ALREADY_CLAIMED":
@@ -430,6 +560,15 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                 )
 
 
+@router.callback_query(F.data == "cancel_claim")
+async def cancel_claim_callback(callback: CallbackQuery):
+    await callback.answer("Cancelled")
+    try:
+        await callback.message.edit_caption(
+            caption="❌ Claim cancelled.", reply_markup=None
+        )
+    except Exception:
+        await callback.message.answer("❌ Claim cancelled.")
 @router.callback_query(F.data == "check_membership")
 async def check_membership_cb(callback: CallbackQuery, bot: Bot):
     await callback.answer("Checking…")

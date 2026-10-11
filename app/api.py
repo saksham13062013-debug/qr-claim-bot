@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from fastapi.responses import StreamingResponse
 from fastapi import (
     APIRouter,
     Depends,
@@ -453,6 +454,9 @@ async def list_qrs(
                 "claimed_at": q.claimed_at.isoformat() if q.claimed_at else None,
                 "expires_at": q.expires_at.isoformat() if q.expires_at else None,
                 "claimed_by_user_id": q.claimed_by_user_id,
+                "claimed_by_username": getattr(getattr(q, "claimed_by", None), "username", None),
+                "claimed_by_first_name": getattr(getattr(q, "claimed_by", None), "first_name", None),
+                "claimed_by_telegram_id": getattr(getattr(q, "claimed_by", None), "telegram_id", None),
             }
             for q in items
         ],
@@ -511,11 +515,11 @@ async def post_qr(
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # Optionally post to Telegram chat
+    # Channel post: text + CLAIM button only (NO QR image on channel)
+    # QR image is sent to the user privately after they tap CLAIM REWARD
     message_text = None
     if body.chat_id:
-        from app.bot import get_bot
-        from app.bot import claim_button
+        from app.bot import claim_button, get_bot
 
         bot = get_bot()
         if bot:
@@ -524,17 +528,20 @@ async def post_qr(
                     f"🎁 <b>NEW QR REWARD</b>\n\n"
                     f"🎟 QR: <code>{qr.code}</code>\n"
                     f"💰 Reward: ${qr.reward_cents / 100:.2f}\n"
-                    f"🔥 One user only!"
+                    f"🔥 One user only!\n\n"
+                    f"Tap <b>CLAIM REWARD</b> — the bot will send you the QR image."
                 )
                 await bot.send_message(
                     chat_id=body.chat_id,
                     text=msg,
                     reply_markup=claim_button(qr.code),
                 )
-                message_text = "Posted to Telegram"
+                message_text = "Posted to Telegram (text only)"
             except Exception as exc:
                 logger.warning("Failed to post QR to Telegram: %s", exc)
-                message_text = f"Marked POSTED but Telegram send failed: {type(exc).__name__}"
+                message_text = (
+                    f"Marked POSTED but Telegram send failed: {type(exc).__name__}"
+                )
 
     return {
         "ok": True,
@@ -596,6 +603,8 @@ async def list_claims(
                 "qr_code": c.qr_code.code if c.qr_code else None,
                 "user_id": c.user_id,
                 "username": c.user.username if c.user else None,
+                "first_name": c.user.first_name if c.user else None,
+                "last_name": c.user.last_name if c.user else None,
                 "telegram_id": c.user.telegram_id if c.user else None,
                 "reward_cents": c.reward_cents,
                 "status": c.status.value,
@@ -944,3 +953,185 @@ async def reset_qr_data(
     except ValueError as e:
         raise HTTPException(400, str(e))
     return result
+
+
+# ---------------------------------------------------------------------------
+# QR image download
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/qrs/{qr_id}/image")
+async def qr_image(
+    qr_id: int,
+    admin: Admin = Depends(require_perm("qr.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.config import get_settings
+    from app.services.qr_image_service import claim_payload, generate_qr_png_bytes
+
+    qr = await qr_service.get_qr_by_id(session, qr_id)
+    if not qr:
+        raise HTTPException(404, "QR not found")
+    cfg = get_settings()
+    png = generate_qr_png_bytes(claim_payload(qr.code, cfg.bot_username or None))
+    return Response(content=png, media_type="image/png", headers={
+        "Content-Disposition": f'attachment; filename="{qr.code}.png"'
+    })
+
+
+# ---------------------------------------------------------------------------
+# CSV exports
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/export/claims")
+async def export_claims(
+    status: Optional[str] = None,
+    admin: Admin = Depends(require_perm("claims.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    import csv
+    import io
+    st = ClaimStatus(status) if status else None
+    items, _ = await claim_service.list_claims(session, status=st, offset=0, limit=10000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "qr_code", "user_id", "username", "telegram_id", "first_name", "reward_usd", "status", "created_at"])
+    for c in items:
+        w.writerow([
+            c.id,
+            c.qr_code.code if c.qr_code else "",
+            c.user_id,
+            c.user.username if c.user else "",
+            c.user.telegram_id if c.user else "",
+            c.user.first_name if c.user else "",
+            f"{c.reward_cents/100:.2f}",
+            c.status.value,
+            c.created_at.isoformat() if c.created_at else "",
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=claims.csv"},
+    )
+
+
+@router.get("/admin/export/qrs")
+async def export_qrs(
+    admin: Admin = Depends(require_perm("qr.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    import csv
+    import io
+    items, _ = await qr_service.list_qrs(session, offset=0, limit=10000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "code", "reward_usd", "status", "campaign", "claimed_by_user_id", "claimed_by_username", "created_at", "expires_at"])
+    for q in items:
+        u = getattr(q, "claimed_by", None)
+        w.writerow([
+            q.id, q.code, f"{q.reward_cents/100:.2f}", q.status.value,
+            q.campaign_name or "", q.claimed_by_user_id or "",
+            getattr(u, "username", "") or "",
+            q.created_at.isoformat() if q.created_at else "",
+            q.expires_at.isoformat() if q.expires_at else "",
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=qrs.csv"},
+    )
+
+
+@router.get("/admin/export/withdrawals")
+async def export_withdrawals(
+    admin: Admin = Depends(require_perm("withdrawals.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    import csv
+    import io
+    items, _ = await withdrawal_service.list_withdrawals(session, offset=0, limit=10000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "user_id", "username", "telegram_id", "amount_usd", "status", "created_at", "paid_at"])
+    for x in items:
+        w.writerow([
+            x.id, x.user_id,
+            x.user.username if x.user else "",
+            x.user.telegram_id if x.user else "",
+            f"{x.amount_cents/100:.2f}",
+            x.status.value,
+            x.created_at.isoformat() if x.created_at else "",
+            x.paid_at.isoformat() if getattr(x, "paid_at", None) else "",
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=withdrawals.csv"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Broadcast
+# ---------------------------------------------------------------------------
+
+class BroadcastRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    only_active: bool = True
+
+
+@router.post("/admin/broadcast")
+async def broadcast(
+    body: BroadcastRequest,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.bot import get_bot
+    from app.models import User, UserStatus
+
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(503, "Bot not ready")
+
+    q = select(User)
+    if body.only_active:
+        q = q.where(User.status == UserStatus.ACTIVE)
+    users = (await session.execute(q)).scalars().all()
+    sent = 0
+    failed = 0
+    for u in users:
+        try:
+            await bot.send_message(u.telegram_id, body.message, parse_mode="HTML")
+            sent += 1
+        except Exception:
+            failed += 1
+    await write_audit(
+        session,
+        action=AuditAction.SETTINGS_CHANGED,
+        admin_id=admin.id,
+        details={"broadcast_sent": sent, "broadcast_failed": failed},
+    )
+    return {"ok": True, "sent": sent, "failed": failed, "total": len(users)}
+
+
+# ---------------------------------------------------------------------------
+# Change password
+# ---------------------------------------------------------------------------
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
+@router.post("/admin/change-password")
+async def change_password(
+    body: ChangePasswordRequest,
+    admin: Admin = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.security import hash_password, verify_password
+
+    if not verify_password(body.current_password, admin.password_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    admin.password_hash = hash_password(body.new_password)
+    session.add(admin)
+    await session.commit()
+    return {"ok": True, "message": "Password updated"}
