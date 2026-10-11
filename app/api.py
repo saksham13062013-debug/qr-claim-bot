@@ -1282,6 +1282,11 @@ async def clone_qr(
     return {"ok": True, "created": len(created), "codes": [c.code for c in created]}
 
 
+class SchedulePostRequest(BaseModel):
+    chat_id: str
+    scheduled_at: str  # ISO datetime
+
+
 @router.post("/admin/qrs/{qr_id}/schedule")
 async def schedule_qr_post(
     qr_id: int,
