@@ -196,6 +196,7 @@ const PAGE_META = {
   broadcast: { title: "Broadcast", sub: "Send a message to all bot users" },
   settings: { title: "Settings", sub: "Bot configuration & defaults" },
   audit: { title: "Audit Log", sub: "Security and action history" },
+  admins: { title: "Admins & Roles", sub: "Manage admin accounts and permissions" },
   reset: { title: "Reset", sub: "Owner-only destructive operations" },
 };
 
@@ -234,6 +235,7 @@ async function loadPage(page) {
       tickets: renderTickets,
       broadcast: renderBroadcast,
       settings: renderSettings,
+      admins: renderAdmins,
       audit: renderAudit,
       reset: renderReset,
     };
@@ -517,14 +519,15 @@ async function renderQRs(status = "") {
 function showCreateQR() {
   openModal("Create QR Codes", `
     <div class="form-row">
-      <div class="form-group"><label>Reward (USD)</label><input type="number" id="qrReward" step="0.01" min="0.01" value="0.50" /></div>
-      <div class="form-group"><label>Quantity</label><input type="number" id="qrQty" min="1" max="500" value="1" /></div>
+      <div class="form-group"><label>Reward amount (USD) *</label><input type="number" id="qrReward" step="0.01" min="0.01" value="0.50" required /></div>
+      <div class="form-group"><label>Quantity *</label><input type="number" id="qrQty" min="1" max="500" value="1" required /></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Expiry (hours)</label><input type="number" id="qrExpiry" min="1" placeholder="72 (optional)" /></div>
+      <div class="form-group"><label>Expiry (minutes)</label><input type="number" id="qrExpiryMin" min="1" placeholder="e.g. 60, 1440 (optional)" /></div>
       <div class="form-group"><label>Campaign name</label><input type="text" id="qrCampaign" placeholder="Optional" /></div>
     </div>
     <div class="form-group"><label>Description</label><textarea id="qrDesc" placeholder="Optional notes"></textarea></div>
+    <p class="muted" style="font-size:0.85rem">QR codes expire automatically after the minutes you set. Leave blank for no expiry.</p>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="doCreateQR()">Create</button>
@@ -532,10 +535,14 @@ function showCreateQR() {
 }
 
 async function doCreateQR() {
+  const reward = parseFloat(document.getElementById("qrReward").value);
+  const qty = parseInt(document.getElementById("qrQty").value, 10);
+  if (!reward || reward <= 0) { toast("Enter a valid reward amount", "error"); return; }
+  if (!qty || qty < 1) { toast("Enter quantity", "error"); return; }
   const body = {
-    reward_usd: parseFloat(document.getElementById("qrReward").value),
-    quantity: parseInt(document.getElementById("qrQty").value, 10),
-    expiry_hours: parseInt(document.getElementById("qrExpiry").value, 10) || null,
+    reward_usd: reward,
+    quantity: qty,
+    expiry_minutes: parseInt(document.getElementById("qrExpiryMin").value, 10) || null,
     campaign_name: document.getElementById("qrCampaign").value || null,
     description: document.getElementById("qrDesc").value || null,
   };
@@ -673,6 +680,7 @@ async function renderWithdrawals(status = "PENDING") {
       <td>${w.id}</td>
       <td>${tgUserLink(w.username, w.telegram_id, w.first_name, w.last_name)}</td>
       <td><strong>${cents(w.amount_cents)}</strong></td>
+      <td>${escapeHtml(w.payout_method || "—")}<div class="muted-xs">${escapeHtml(w.payout_details || "")}</div></td>
       <td>${badge(w.status)}</td>
       <td>${fmtDate(w.created_at)}</td>
       <td>
@@ -698,19 +706,20 @@ async function renderWithdrawals(status = "PENDING") {
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
-        <th>ID</th><th>User</th><th>Amount</th><th>Status</th><th>Created</th><th>Actions</th>
+        <th>ID</th><th>User</th><th>Amount</th><th>Payout</th><th>Status</th><th>Created</th><th>Actions</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="6">${emptyState("💸", "No withdrawals")}</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="7">${emptyState("💸", "No withdrawals")}</td></tr>`}</tbody>
     </table></div>
     ${pagination(data.total)}
   `;
 }
 
 async function payWd(id) {
-  const ref = prompt("Payment reference (optional):");
+  const ref = prompt("Payment reference / transaction ID (optional).\nConfirm you paid the user via their UPI or Binance ID:");
+  if (ref === null) return;
   try {
     await api(`/admin/withdrawals/${id}/pay`, { method: "POST", body: { payment_reference: ref || null } });
-    toast("Marked as paid");
+    toast("Marked as paid — user will be notified");
     renderWithdrawals();
   } catch (e) { toast(e.message, "error"); }
 }
@@ -1257,9 +1266,173 @@ async function doScheduleQR(id) {
   } catch (e) { toast(e.message, "error"); }
 }
 
-/* DASH_REFRESH */
+/* ---------- Admins & Roles ---------- */
+
+async function renderAdmins() {
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-primary btn-sm" onclick="showCreateAdmin()">+ Add Admin</button>
+  `;
+  try {
+    const data = await api("/admin/admins");
+    const rows = (data.items || []).map((a) => `
+      <tr>
+        <td>${a.id}</td>
+        <td><strong>${escapeHtml(a.username)}</strong></td>
+        <td>${badge(a.role)}</td>
+        <td>${escapeHtml(a.display_name || "—")}</td>
+        <td>${a.is_active ? badge("ACTIVE") : badge("DISABLED")}</td>
+        <td>${fmtDate(a.last_login_at)}</td>
+        <td>
+          ${a.role !== "OWNER" ? `
+            <button class="btn btn-sm btn-outline" onclick='editAdmin(${JSON.stringify(a).replace(/'/g, "&#39;")})'>Edit</button>
+          ` : "—"}
+        </td>
+      </tr>`).join("");
+    document.getElementById("content").innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>ID</th><th>Username</th><th>Role</th><th>Name</th><th>Status</th><th>Last login</th><th></th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">${emptyState("🔐", "No admins")}</td></tr>`}</tbody>
+      </table></div>
+      <p class="muted" style="margin-top:1rem;font-size:0.85rem">
+        Roles: OWNER (full) · SUPER_ADMIN · MANAGER · MODERATOR. Only OWNER can manage admins.
+      </p>`;
+  } catch (e) {
+    document.getElementById("content").innerHTML =
+      `<div class="error-banner">${escapeHtml(e.message)}. Owner access required.</div>`;
+  }
+}
+
+function showCreateAdmin() {
+  openModal("Add Admin", `
+    <div class="form-group"><label>Username</label><input id="admUser" /></div>
+    <div class="form-group"><label>Password (min 8)</label><input type="password" id="admPass" /></div>
+    <div class="form-group"><label>Role</label>
+      <select id="admRole">
+        <option value="MODERATOR">MODERATOR</option>
+        <option value="MANAGER">MANAGER</option>
+        <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Display name</label><input id="admName" /></div>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doCreateAdmin()">Create</button>
+  `);
+}
+
+async function doCreateAdmin() {
+  const body = {
+    username: document.getElementById("admUser").value.trim(),
+    password: document.getElementById("admPass").value,
+    role: document.getElementById("admRole").value,
+    display_name: document.getElementById("admName").value.trim() || null,
+  };
+  if (!body.username || body.password.length < 8) {
+    toast("Username and password (8+) required", "error");
+    return;
+  }
+  try {
+    await api("/admin/admins", { method: "POST", body });
+    toast("Admin created");
+    closeModal();
+    renderAdmins();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function editAdmin(a) {
+  openModal("Edit Admin #" + a.id, `
+    <div class="form-group"><label>Role</label>
+      <select id="editRole">
+        ${["MODERATOR","MANAGER","SUPER_ADMIN"].map(r =>
+          `<option value="${r}" ${a.role===r?"selected":""}>${r}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-check">
+      <input type="checkbox" id="editActive" ${a.is_active?"checked":""}/> Active
+    </label></div>
+    <div class="form-group"><label>New password (optional)</label>
+      <input type="password" id="editPass" placeholder="Leave blank to keep"/></div>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doEditAdmin(${a.id})">Save</button>
+  `);
+}
+
+async function doEditAdmin(id) {
+  const body = {
+    role: document.getElementById("editRole").value,
+    is_active: document.getElementById("editActive").checked,
+  };
+  const pass = document.getElementById("editPass").value;
+  if (pass) body.password = pass;
+  try {
+    await api(`/admin/admins/${id}`, { method: "PATCH", body });
+    toast("Admin updated");
+    closeModal();
+    renderAdmins();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+/* ---------- Chrome browser notifications ---------- */
+
+let _notifClaimId = parseInt(localStorage.getItem("notif_claim_id") || "0", 10);
+let _notifWdId = parseInt(localStorage.getItem("notif_wd_id") || "0", 10);
+
+function browserNotify(title, body) {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "granted") {
+    try {
+      new Notification(title, { body, icon: "/static/favicon.ico" });
+    } catch (_) {}
+  }
+}
+
+async function ensureNotifyPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (_) {}
+  }
+}
+
+async function pollAdminEvents() {
+  try {
+    const data = await api(
+      `/admin/events/poll?since_claim_id=${_notifClaimId}&since_withdrawal_id=${_notifWdId}`
+    );
+    for (const c of data.claims || []) {
+      browserNotify(
+        "New QR claim",
+        `#${c.id} ${c.qr_code || ""} — $${(c.reward_cents / 100).toFixed(2)} from @${c.username || c.telegram_id}`
+      );
+    }
+    for (const w of data.withdrawals || []) {
+      browserNotify(
+        "New withdrawal",
+        `#${w.id} $${(w.amount_cents / 100).toFixed(2)} via ${w.payout_method || "—"} (${w.payout_details || ""})`
+      );
+    }
+    if (data.max_claim_id != null) {
+      _notifClaimId = data.max_claim_id;
+      localStorage.setItem("notif_claim_id", String(_notifClaimId));
+    }
+    if (data.max_withdrawal_id != null) {
+      _notifWdId = data.max_withdrawal_id;
+      localStorage.setItem("notif_wd_id", String(_notifWdId));
+    }
+  } catch (_) {
+    /* ignore when logged out */
+  }
+}
+
+/* DASH_REFRESH + event poll */
 setInterval(() => {
   if (typeof currentPage !== "undefined" && currentPage === "dashboard") {
     renderDashboard().catch(() => {});
   }
 }, 60000);
+
+ensureNotifyPermission();
+setInterval(pollAdminEvents, 20000);
+setTimeout(pollAdminEvents, 3000);

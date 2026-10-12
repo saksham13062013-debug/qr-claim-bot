@@ -50,21 +50,22 @@ def cents_to_usd(cents: int) -> str:
 # ---------------------------------------------------------------------------
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
+    """Bottom reply keyboard with coloured styles (Bot API 9.4)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="How to Claim"),
-                KeyboardButton(text="Balance"),
+                KeyboardButton(text="How to Claim", style="primary"),
+                KeyboardButton(text="Balance", style="primary"),
             ],
             [
-                KeyboardButton(text="My Claims"),
-                KeyboardButton(text="Withdraw"),
+                KeyboardButton(text="My Claims", style="primary"),
+                KeyboardButton(text="Withdraw", style="success"),
             ],
             [
-                KeyboardButton(text="History"),
-                KeyboardButton(text="Support"),
+                KeyboardButton(text="History", style="primary"),
+                KeyboardButton(text="Support", style="primary"),
             ],
-            [KeyboardButton(text="Help")],
+            [KeyboardButton(text="Help", style="primary")],
         ],
         resize_keyboard=True,
         input_field_placeholder="Choose an option…",

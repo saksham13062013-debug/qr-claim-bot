@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import (
     Admin,
+    AdminRole,
     AuditAction,
     AuditLog,
     ClaimStatus,
@@ -27,6 +28,7 @@ from app.models import (
     QRStatus,
     User,
     UserStatus,
+    Withdrawal,
     WithdrawalStatus,
 )
 from app.security import (
@@ -108,7 +110,8 @@ class LoginResponse(BaseModel):
 class QRCreateRequest(BaseModel):
     reward_usd: float = Field(..., gt=0)
     quantity: int = Field(1, ge=1, le=500)
-    expiry_hours: Optional[int] = Field(None, ge=1)
+    expiry_minutes: Optional[int] = Field(None, ge=1, le=525600)
+    expiry_hours: Optional[int] = Field(None, ge=1)  # legacy alias
     campaign_name: Optional[str] = None
     description: Optional[str] = None
 
@@ -479,7 +482,9 @@ async def create_qrs(
 ):
     reward_cents = int(round(body.reward_usd * 100))
     expires_at = None
-    if body.expiry_hours:
+    if body.expiry_minutes:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=body.expiry_minutes)
+    elif body.expiry_hours:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=body.expiry_hours)
     codes = await qr_service.create_qr_codes(
         session,
@@ -807,6 +812,8 @@ async def list_withdrawals(
                 "telegram_id": w.user.telegram_id if w.user else None,
                 "amount_cents": w.amount_cents,
                 "status": w.status.value,
+                "payout_method": getattr(w, "payout_method", None),
+                "payout_details": getattr(w, "payout_details", None),
                 "created_at": w.created_at.isoformat() if w.created_at else None,
                 "paid_at": w.paid_at.isoformat() if w.paid_at else None,
             }
@@ -1300,3 +1307,182 @@ async def export_withdrawals(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=withdrawals.csv"},
     )
+
+
+# ---- Admin role management (OWNER) ----
+
+
+class AdminCreateRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=8)
+    role: str = Field(..., pattern="^(SUPER_ADMIN|MANAGER|MODERATOR)$")
+    display_name: Optional[str] = None
+    telegram_id: Optional[int] = None
+
+
+class AdminUpdateRequest(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    display_name: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=8)
+    permissions: Optional[dict] = None
+
+
+@router.get("/admin/admins")
+async def list_admins(
+    admin: Admin = Depends(require_perm("admins.manage")),
+    session: AsyncSession = Depends(get_db),
+):
+    rows = (await session.execute(select(Admin).order_by(Admin.id))).scalars().all()
+    return {
+        "items": [
+            {
+                "id": a.id,
+                "username": a.username,
+                "role": a.role.value,
+                "display_name": a.display_name,
+                "telegram_id": a.telegram_id,
+                "is_active": a.is_active,
+                "permissions": a.permissions or {},
+                "last_login_at": a.last_login_at.isoformat() if a.last_login_at else None,
+            }
+            for a in rows
+        ]
+    }
+
+
+@router.post("/admin/admins")
+async def create_admin(
+    body: AdminCreateRequest,
+    admin: Admin = Depends(require_perm("admins.manage")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.models import AdminRole
+
+    existing = (
+        await session.execute(select(Admin).where(Admin.username == body.username))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "Username already exists")
+    role = AdminRole(body.role)
+    new_admin = Admin(
+        username=body.username,
+        password_hash=hash_password(body.password),
+        role=role,
+        display_name=body.display_name or body.username,
+        telegram_id=body.telegram_id,
+        is_active=True,
+    )
+    session.add(new_admin)
+    await session.commit()
+    await write_audit(
+        session,
+        action=AuditAction.ROLE_CHANGED,
+        actor_admin_id=admin.id,
+        target_type="admin",
+        target_id=str(new_admin.id),
+        metadata={"role": body.role, "username": body.username},
+    )
+    return {"ok": True, "id": new_admin.id}
+
+
+@router.patch("/admin/admins/{admin_id}")
+async def update_admin(
+    admin_id: int,
+    body: AdminUpdateRequest,
+    admin: Admin = Depends(require_perm("admins.manage")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.models import AdminRole
+
+    target = await admin_service.get_admin_by_id(session, admin_id)
+    if not target:
+        raise HTTPException(404, "Admin not found")
+    if target.role == AdminRole.OWNER and target.id != admin.id:
+        raise HTTPException(400, "Cannot modify another OWNER")
+    if body.role is not None:
+        if body.role == "OWNER":
+            raise HTTPException(400, "Cannot assign OWNER via API")
+        target.role = AdminRole(body.role)
+    if body.is_active is not None:
+        if target.role == AdminRole.OWNER and not body.is_active:
+            raise HTTPException(400, "Cannot deactivate OWNER")
+        target.is_active = body.is_active
+    if body.display_name is not None:
+        target.display_name = body.display_name
+    if body.password:
+        target.password_hash = hash_password(body.password)
+    if body.permissions is not None:
+        target.permissions = body.permissions
+    session.add(target)
+    await session.commit()
+    await write_audit(
+        session,
+        action=AuditAction.ROLE_CHANGED,
+        actor_admin_id=admin.id,
+        target_type="admin",
+        target_id=str(admin_id),
+        metadata=body.model_dump(exclude_none=True),
+    )
+    return {"ok": True}
+
+
+# ---- Browser notification poll (Chrome push via Notification API) ----
+
+
+@router.get("/admin/events/poll")
+async def poll_events(
+    since_claim_id: int = 0,
+    since_withdrawal_id: int = 0,
+    admin: Admin = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Lightweight poll for new claims/withdrawals for browser notifications."""
+    from app.models import QRClaim, Withdrawal
+
+    new_claims = (
+        await session.execute(
+            select(QRClaim)
+            .options(selectinload(QRClaim.user), selectinload(QRClaim.qr_code))
+            .where(QRClaim.id > since_claim_id, QRClaim.status == ClaimStatus.PENDING)
+            .order_by(QRClaim.id.asc())
+            .limit(20)
+        )
+    ).scalars().all()
+    new_wds = (
+        await session.execute(
+            select(Withdrawal)
+            .options(selectinload(Withdrawal.user))
+            .where(
+                Withdrawal.id > since_withdrawal_id,
+                Withdrawal.status == WithdrawalStatus.PENDING,
+            )
+            .order_by(Withdrawal.id.asc())
+            .limit(20)
+        )
+    ).scalars().all()
+    return {
+        "claims": [
+            {
+                "id": c.id,
+                "reward_cents": c.reward_cents,
+                "qr_code": c.qr_code.code if c.qr_code else None,
+                "username": c.user.username if c.user else None,
+                "telegram_id": c.user.telegram_id if c.user else None,
+            }
+            for c in new_claims
+        ],
+        "withdrawals": [
+            {
+                "id": w.id,
+                "amount_cents": w.amount_cents,
+                "payout_method": getattr(w, "payout_method", None),
+                "payout_details": getattr(w, "payout_details", None),
+                "username": w.user.username if w.user else None,
+                "telegram_id": w.user.telegram_id if w.user else None,
+            }
+            for w in new_wds
+        ],
+        "max_claim_id": max([c.id for c in new_claims] + [since_claim_id]),
+        "max_withdrawal_id": max([w.id for w in new_wds] + [since_withdrawal_id]),
+    }
