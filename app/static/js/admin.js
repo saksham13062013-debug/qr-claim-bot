@@ -49,15 +49,83 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/* ---------- Theme / sound / haptics ---------- */
+
+const PREFS = {
+  theme: localStorage.getItem("admin_theme") || "dark",
+  sound: localStorage.getItem("admin_sound") !== "0",
+};
+
+function applyTheme(theme) {
+  PREFS.theme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("admin_theme", theme);
+}
+
+function haptic(pattern = 12) {
+  try {
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  } catch (_) {}
+}
+
+let _audioCtx = null;
+function playTone(freq = 520, ms = 80, type = "sine") {
+  if (!PREFS.sound) return;
+  try {
+    _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = _audioCtx.createOscillator();
+    const g = _audioCtx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = 0.04;
+    o.connect(g);
+    g.connect(_audioCtx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + ms / 1000);
+    o.stop(_audioCtx.currentTime + ms / 1000);
+  } catch (_) {}
+}
+
+function fxSuccess() {
+  haptic([10, 30, 10]);
+  playTone(660, 70);
+  setTimeout(() => playTone(880, 90), 70);
+}
+function fxError() {
+  haptic([40, 20, 40]);
+  playTone(220, 120, "square");
+}
+function fxClick() {
+  haptic(8);
+  playTone(480, 40);
+}
+
+/* Prevent double-clicks on action buttons */
+function onceButton(btn, fn) {
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.classList.remove("is-loading");
+      }, 600);
+    });
+}
+
 /* ---------- UI helpers ---------- */
 
 function toast(msg, type = "success") {
   const container = document.getElementById("toastContainer");
   const el = document.createElement("div");
-  el.className = `toast ${type}`;
-  const icons = { success: "✅", error: "❌", info: "ℹ️" };
-  el.innerHTML = `<span>${icons[type] || ""}</span><span>${msg}</span>`;
+  el.className = `toast ${type} anim-slide`;
+  el.innerHTML = `<span>${escapeHtml(msg)}</span>`;
   container.appendChild(el);
+  if (type === "error") fxError();
+  else if (type === "success") fxSuccess();
+  else fxClick();
   setTimeout(() => {
     el.style.opacity = "0";
     el.style.transition = "opacity 0.3s";
@@ -128,8 +196,8 @@ function fmtDate(iso) {
   }
 }
 
-function emptyState(icon, text) {
-  return `<div class="empty-state"><div class="empty-icon">${icon}</div><p>${text}</p></div>`;
+function emptyState(_icon, text) {
+  return `<div class="empty-state anim-fade"><p>${text}</p></div>`;
 }
 
 /* ---------- Modal ---------- */
@@ -320,49 +388,49 @@ async function renderDashboard() {
   } else bw.classList.add("hidden");
 
   document.getElementById("content").innerHTML = `
-    <div class="cards">
+    <div class="cards anim-fade">
       <div class="stat-card">
-        <div class="stat-icon">👥</div>
+        <div class="stat-icon">US</div>
         <div class="stat-label">Total Users</div>
         <div class="stat-value">${s.total_users.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">🎟</div>
+        <div class="stat-icon">QR</div>
         <div class="stat-label">Total QR Codes</div>
         <div class="stat-value">${s.total_qr_codes.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">🎁</div>
+        <div class="stat-icon">AV</div>
         <div class="stat-label">Available QR</div>
         <div class="stat-value">${s.available_qr.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">📌</div>
+        <div class="stat-icon">PC</div>
         <div class="stat-label">Pending Claims</div>
         <div class="stat-value">${s.pending_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">✅</div>
+        <div class="stat-icon">OK</div>
         <div class="stat-label">Approved</div>
         <div class="stat-value">${s.approved_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">❌</div>
+        <div class="stat-icon">RJ</div>
         <div class="stat-label">Rejected</div>
         <div class="stat-value">${s.rejected_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">💰</div>
+        <div class="stat-icon">RW</div>
         <div class="stat-label">Total Rewards</div>
         <div class="stat-value">${cents(s.total_rewards_cents)}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">💸</div>
+        <div class="stat-icon">WD</div>
         <div class="stat-label">Pending Withdrawals</div>
         <div class="stat-value">${s.pending_withdrawals.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">💵</div>
+        <div class="stat-icon">PD</div>
         <div class="stat-label">Total Paid Out</div>
         <div class="stat-value">${cents(s.total_paid_cents)}</div>
       </div>
@@ -1160,9 +1228,41 @@ function pagination(total) {
     document.getElementById("adminAvatar").textContent =
       (me.username || "A").charAt(0).toUpperCase();
 
+    applyTheme(PREFS.theme);
     navigate("dashboard");
 
-    // Pause auto-refresh while user is interacting (click / type / scroll)
+    const themeBtn = document.getElementById("themeToggle");
+    const soundBtn = document.getElementById("soundToggle");
+    if (themeBtn) {
+      themeBtn.textContent = PREFS.theme === "dark" ? "Light" : "Dark";
+      themeBtn.onclick = () => {
+        const next = PREFS.theme === "dark" ? "light" : "dark";
+        applyTheme(next);
+        themeBtn.textContent = next === "dark" ? "Light" : "Dark";
+        fxClick();
+      };
+    }
+    if (soundBtn) {
+      soundBtn.textContent = PREFS.sound ? "Sound on" : "Sound off";
+      soundBtn.onclick = () => {
+        PREFS.sound = !PREFS.sound;
+        localStorage.setItem("admin_sound", PREFS.sound ? "1" : "0");
+        soundBtn.textContent = PREFS.sound ? "Sound on" : "Sound off";
+        fxClick();
+      };
+    }
+
+    // Click feedback on primary actions
+    document.addEventListener(
+      "click",
+      (e) => {
+        const t = e.target.closest(".btn, .nav-item");
+        if (t) fxClick();
+      },
+      true
+    );
+
+    // Pause auto-refresh while user is interacting
     let lastInteract = Date.now();
     const markInteract = () => { lastInteract = Date.now(); };
     document.addEventListener("click", markInteract, true);
@@ -1170,11 +1270,10 @@ function pagination(total) {
     document.addEventListener("scroll", markInteract, true);
     document.addEventListener("touchstart", markInteract, true);
 
-    // Gentle live refresh every 15s — never while modal open or recent interaction
     setInterval(() => {
       const modal = document.getElementById("modal");
       if (modal && !modal.classList.contains("hidden")) return;
-      if (Date.now() - lastInteract < 8000) return; // 8s after last click/type
+      if (Date.now() - lastInteract < 8000) return;
       if (!currentPage) return;
       softRefresh();
     }, 15000);
@@ -1236,28 +1335,42 @@ async function softRefresh() {
 
 /* ---------- Broadcast ---------- */
 
+let _broadcastBusy = false;
+
 async function renderBroadcast() {
   document.getElementById("topbarActions").innerHTML = "";
   document.getElementById("content").innerHTML = `
-    <div class="card" style="max-width:640px">
-      <h3 style="margin-top:0">📣 Broadcast Message</h3>
-      <p class="muted">Sends a Telegram message to all active users. Use sparingly.</p>
+    <div class="card anim-fade" style="max-width:640px">
+      <h3 style="margin-top:0">Broadcast Message</h3>
+      <p class="muted">Sends a Telegram message to all active users. Button locks until finished.</p>
       <div class="form-group">
         <label>Message (HTML allowed: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</label>
         <textarea id="broadcastMsg" rows="6" placeholder="Hello! New rewards are live..."></textarea>
       </div>
       <label class="check-row"><input type="checkbox" id="broadcastActive" checked> Only active users</label>
       <div style="margin-top:1rem">
-        <button class="btn btn-primary" onclick="doBroadcast()">Send Broadcast</button>
+        <button class="btn btn-primary" id="broadcastBtn" onclick="doBroadcast()">Send Broadcast</button>
       </div>
     </div>
   `;
 }
 
 async function doBroadcast() {
+  if (_broadcastBusy) {
+    toast("Broadcast already running", "error");
+    return;
+  }
   const message = document.getElementById("broadcastMsg").value.trim();
   if (!message) { toast("Message required", "error"); return; }
   if (!confirm("Send this message to all matching users?")) return;
+  const btn = document.getElementById("broadcastBtn");
+  _broadcastBusy = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+    btn.classList.add("is-loading");
+  }
+  fxClick();
   try {
     const res = await api("/admin/broadcast", {
       method: "POST",
@@ -1267,7 +1380,16 @@ async function doBroadcast() {
       },
     });
     toast(`Sent: ${res.sent}, Failed: ${res.failed}, Total: ${res.total}`);
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) {
+    toast(e.message, "error");
+  } finally {
+    _broadcastBusy = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Send Broadcast";
+      btn.classList.remove("is-loading");
+    }
+  }
 }
 
 async function doChangePassword() {

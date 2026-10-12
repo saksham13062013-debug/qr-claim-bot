@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,73 +12,76 @@
 </head>
 <body>
   <div id="app" class="app-shell">
-    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="brand-wrap">
-          <span class="brand-icon">🎁</span>
+          <span class="brand-icon">QR</span>
           <div class="brand-text">
             <span class="brand-name">QR Admin</span>
             <span class="brand-tag">Control Panel</span>
           </div>
         </div>
-        <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+        <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">X</button>
       </div>
 
       <nav class="nav" id="nav">
         <div class="nav-section">
           <span class="nav-label">Overview</span>
           <a href="#dashboard" class="nav-item active" data-page="dashboard">
-            <span class="nav-icon">📊</span><span>Dashboard</span>
+            <span class="nav-icon">DB</span><span>Dashboard</span>
           </a>
         </div>
         <div class="nav-section">
           <span class="nav-label">Management</span>
           <a href="#users" class="nav-item" data-page="users">
-            <span class="nav-icon">👥</span><span>Users</span>
+            <span class="nav-icon">US</span><span>Users</span>
           </a>
           <a href="#qrs" class="nav-item" data-page="qrs">
-            <span class="nav-icon">🎟</span><span>QR Codes</span>
+            <span class="nav-icon">QR</span><span>QR Codes</span>
           </a>
           <a href="#claims" class="nav-item" data-page="claims">
-            <span class="nav-icon">📌</span><span>Claims</span>
+            <span class="nav-icon">CL</span><span>Claims</span>
             <span class="nav-badge hidden" id="badgeClaims">0</span>
           </a>
           <a href="#withdrawals" class="nav-item" data-page="withdrawals">
-            <span class="nav-icon">💸</span><span>Withdrawals</span>
+            <span class="nav-icon">WD</span><span>Withdrawals</span>
             <span class="nav-badge hidden" id="badgeWd">0</span>
           </a>
         </div>
         <div class="nav-section">
           <span class="nav-label">Config</span>
           <a href="#channels" class="nav-item" data-page="channels">
-            <span class="nav-icon">📢</span><span>Channels</span>
+            <span class="nav-icon">CH</span><span>Channels</span>
           </a>
           <a href="#campaigns" class="nav-item" data-page="campaigns">
-            <span class="nav-icon">📊</span><span>Campaigns</span>
+            <span class="nav-icon">CP</span><span>Campaigns</span>
           </a>
           <a href="#tickets" class="nav-item" data-page="tickets">
-            <span class="nav-icon">🆘</span><span>Tickets</span>
+            <span class="nav-icon">TK</span><span>Tickets</span>
           </a>
           <a href="#broadcast" class="nav-item" data-page="broadcast">
-            <span class="nav-icon">📣</span><span>Broadcast</span>
+            <span class="nav-icon">BC</span><span>Broadcast</span>
           </a>
           <a href="#settings" class="nav-item" data-page="settings">
-            <span class="nav-icon">⚙️</span><span>Settings</span>
+            <span class="nav-icon">ST</span><span>Settings</span>
           </a>
           <a href="#admins" class="nav-item" data-page="admins">
-            <span class="nav-icon">🔐</span><span>Admins & Roles</span>
+            <span class="nav-icon">AD</span><span>Admins & Roles</span>
           </a>
           <a href="#audit" class="nav-item" data-page="audit">
-            <span class="nav-icon">📋</span><span>Audit Log</span>
+            <span class="nav-icon">LG</span><span>Audit Log</span>
           </a>
           <a href="#reset" class="nav-item" data-page="reset">
-            <span class="nav-icon">🗑</span><span>Reset</span>
+            <span class="nav-icon">RS</span><span>Reset</span>
           </a>
         </div>
       </nav>
 
       <div class="sidebar-footer">
+        <div class="theme-row">
+          <button type="button" class="btn btn-ghost btn-sm" id="themeToggle" title="Toggle theme">Theme</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="soundToggle" title="Toggle sound">Sound</button>
+        </div>
         <div class="admin-chip">
           <div class="admin-avatar" id="adminAvatar">A</div>
           <div class="admin-meta">
@@ -92,11 +95,10 @@
 
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-    <!-- Main -->
     <main class="main">
       <header class="topbar">
         <div class="topbar-left">
-          <button class="btn btn-ghost btn-icon mobile-menu" id="sidebarToggle" aria-label="Menu">☰</button>
+          <button class="btn btn-ghost btn-icon mobile-menu" id="sidebarToggle" aria-label="Menu">=</button>
           <div>
             <h2 id="pageTitle">Dashboard</h2>
             <p class="page-sub" id="pageSub">Overview of your reward system</p>
@@ -116,21 +118,18 @@
     </main>
   </div>
 
-  <!-- Modal -->
   <div class="modal-overlay hidden" id="modal">
-    <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal anim-pop" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h3 id="modalTitle">Modal</h3>
-        <button class="btn btn-ghost btn-icon modal-close" id="modalClose" aria-label="Close">✕</button>
+        <button class="btn btn-ghost btn-icon modal-close" id="modalClose" aria-label="Close">X</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
       <div class="modal-footer" id="modalFooter"></div>
     </div>
   </div>
 
-  <!-- Toast container -->
   <div id="toastContainer" class="toast-container"></div>
-
-  <script src="/static/js/admin.js"></script>
+  <script src="/static/js/admin.js" defer></script>
 </body>
 </html>

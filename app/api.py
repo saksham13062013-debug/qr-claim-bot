@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -1090,41 +1091,77 @@ async def reset_qr_data(
     return result
 
 
+_broadcast_lock = asyncio.Lock()
+
+
 @router.post("/admin/broadcast")
 async def broadcast(
     body: BroadcastRequest,
     admin: Admin = Depends(require_perm("settings.edit")),
     session: AsyncSession = Depends(get_db),
 ):
+    """Send broadcast concurrently (fast) with a server-side lock to prevent double-send."""
+    import asyncio as _asyncio
+
     from app.bot import get_bot
 
-    bot = get_bot()
-    if not bot:
-        raise HTTPException(503, "Bot is offline — wait a few seconds and retry")
-    q = select(User)
-    if body.only_active:
-        q = q.where(User.status == UserStatus.ACTIVE)
-    users = (await session.execute(q)).scalars().all()
-    if not users:
-        return {"ok": True, "sent": 0, "failed": 0, "total": 0, "message": "No users to send"}
-    sent = failed = 0
-    for u in users:
-        try:
-            await bot.send_message(
-                chat_id=u.telegram_id,
-                text=body.message,
-                parse_mode="HTML",
-            )
-            sent += 1
-        except Exception:
-            failed += 1
-    await write_audit(
-        session,
-        action=AuditAction.BROADCAST_SENT,
-        actor_admin_id=admin.id,
-        metadata={"sent": sent, "failed": failed, "total": len(users)},
-    )
-    return {"ok": True, "sent": sent, "failed": failed, "total": len(users)}
+    if _broadcast_lock.locked():
+        raise HTTPException(429, "Broadcast already in progress — wait for it to finish")
+
+    async with _broadcast_lock:
+        bot = get_bot()
+        if not bot:
+            raise HTTPException(503, "Bot is offline — wait a few seconds and retry")
+        q = select(User)
+        if body.only_active:
+            q = q.where(User.status == UserStatus.ACTIVE)
+        users = (await session.execute(q)).scalars().all()
+        if not users:
+            return {
+                "ok": True,
+                "sent": 0,
+                "failed": 0,
+                "total": 0,
+                "message": "No users to send",
+            }
+
+        sem = _asyncio.Semaphore(25)
+        sent = 0
+        failed = 0
+        lock_counters = _asyncio.Lock()
+
+        async def _send_one(uid: int) -> None:
+            nonlocal sent, failed
+            async with sem:
+                try:
+                    await bot.send_message(
+                        chat_id=uid,
+                        text=body.message,
+                        parse_mode="HTML",
+                    )
+                    async with lock_counters:
+                        sent += 1
+                except Exception:
+                    async with lock_counters:
+                        failed += 1
+
+        await _asyncio.gather(
+            *[_send_one(u.telegram_id) for u in users],
+            return_exceptions=True,
+        )
+
+        await write_audit(
+            session,
+            action=AuditAction.BROADCAST_SENT,
+            actor_admin_id=admin.id,
+            metadata={"sent": sent, "failed": failed, "total": len(users)},
+        )
+        return {
+            "ok": True,
+            "sent": sent,
+            "failed": failed,
+            "total": len(users),
+        }
 
 
 @router.post("/admin/change-password")

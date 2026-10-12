@@ -224,18 +224,20 @@ class SupportStates(StatesGroup):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def typing(bot: Bot, chat_id: int, seconds: float = 0.8) -> None:
+async def typing(bot: Bot, chat_id: int, seconds: float = 0.15) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.TYPING)
-        await asyncio.sleep(seconds)
+        if seconds > 0:
+            await asyncio.sleep(min(seconds, 0.25))
     except Exception:
         pass
 
 
-async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 1.0) -> None:
+async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 0.2) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-        await asyncio.sleep(seconds)
+        if seconds > 0:
+            await asyncio.sleep(min(seconds, 0.3))
     except Exception:
         pass
 
@@ -721,7 +723,7 @@ async def withdraw_payout_details(message: Message, state: FSMContext, bot: Bot)
         await message.answer("Session expired. Use Withdraw from the menu.")
         return
 
-    await typing(bot, message.chat.id, 1.2)
+    await typing(bot, message.chat.id, 0.15)
     async with get_db_context() as session:
         user = await user_service.get_or_create_user(
             session,
@@ -967,7 +969,7 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
     code = callback.data.split(":", 1)[1]
     user = callback.from_user
     await callback.answer("Submitting…")
-    await typing(bot, callback.message.chat.id, 1.0)
+    await typing(bot, callback.message.chat.id, 0.15)
 
     async with get_db_context() as session:
         db_user = await user_service.get_or_create_user(
