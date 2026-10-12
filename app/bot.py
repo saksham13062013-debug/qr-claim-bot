@@ -248,7 +248,7 @@ async def _send_already_claimed(
     session=None,
     qr=None,
 ) -> None:
-    """Tell user this QR is taken and show clickable claimer profile."""
+    """Already-claimed message with clickable claimer name + profile button."""
     claimer_line = "another user"
     claimer_kb = nav_kb()
 
@@ -270,38 +270,40 @@ async def _send_already_claimed(
         claimer = getattr(row, "claimed_by", None) if row else None
         if not claimer:
             return
-        display = (
-            " ".join(
-                filter(None, [claimer.first_name or "", claimer.last_name or ""])
-            ).strip()
-            or (f"@{claimer.username}" if claimer.username else None)
-            or f"User {claimer.telegram_id}"
-        )
-        # HTML escape display for safety
+
+        first = (claimer.first_name or "").strip()
+        last = (claimer.last_name or "").strip()
+        uname = (claimer.username or "").strip()
+        # Prefer readable name; fall back to @username / ID
+        display = " ".join(x for x in (first, last) if x).strip()
+        if not display:
+            display = f"@{uname}" if uname else f"User {claimer.telegram_id}"
         safe = (
             display.replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
         )
-        if claimer.username:
-            claimer_line = f'<a href="https://t.me/{claimer.username}">{safe}</a>'
-            profile_url = f"https://t.me/{claimer.username}"
-        else:
-            claimer_line = (
-                f'<a href="tg://user?id={claimer.telegram_id}">{safe}</a>'
-            )
-            # url buttons need https — tg:// may not work on all clients
-            profile_url = f"tg://user?id={claimer.telegram_id}"
+
         buttons = []
-        if claimer.username:
+        if uname:
+            # https link → Telegram shows contact card + opens profile
+            claimer_line = f'<a href="https://t.me/{uname}">{safe}</a>'
+            if uname and not display.startswith("@"):
+                claimer_line += f" (@{uname})"
             buttons.append(
                 [
                     InlineKeyboardButton(
                         text="Open claimer profile",
-                        url=profile_url,
+                        url=f"https://t.me/{uname}",
                     )
                 ]
             )
+        else:
+            # No public username — still link by user id (works inside Telegram)
+            claimer_line = (
+                f'<a href="tg://user?id={claimer.telegram_id}">{safe}</a>'
+            )
+
         buttons.append(
             [
                 InlineKeyboardButton(
