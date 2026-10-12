@@ -390,47 +390,47 @@ async function renderDashboard() {
   document.getElementById("content").innerHTML = `
     <div class="cards anim-fade">
       <div class="stat-card">
-        <div class="stat-icon">US</div>
+        <div class="stat-icon">👥</div>
         <div class="stat-label">Total Users</div>
         <div class="stat-value">${s.total_users.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">QR</div>
+        <div class="stat-icon">🎟️</div>
         <div class="stat-label">Total QR Codes</div>
         <div class="stat-value">${s.total_qr_codes.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">AV</div>
+        <div class="stat-icon">🟢</div>
         <div class="stat-label">Available QR</div>
         <div class="stat-value">${s.available_qr.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">PC</div>
+        <div class="stat-icon">⏳</div>
         <div class="stat-label">Pending Claims</div>
         <div class="stat-value">${s.pending_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">OK</div>
+        <div class="stat-icon">✅</div>
         <div class="stat-label">Approved</div>
         <div class="stat-value">${s.approved_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">RJ</div>
+        <div class="stat-icon">❌</div>
         <div class="stat-label">Rejected</div>
         <div class="stat-value">${s.rejected_claims.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">RW</div>
+        <div class="stat-icon">💰</div>
         <div class="stat-label">Total Rewards</div>
         <div class="stat-value">${cents(s.total_rewards_cents)}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">WD</div>
+        <div class="stat-icon">💸</div>
         <div class="stat-label">Pending Withdrawals</div>
         <div class="stat-value">${s.pending_withdrawals.toLocaleString()}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">PD</div>
+        <div class="stat-icon">💵</div>
         <div class="stat-label">Total Paid Out</div>
         <div class="stat-value">${cents(s.total_paid_cents)}</div>
       </div>

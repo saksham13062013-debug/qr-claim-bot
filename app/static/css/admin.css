@@ -1063,6 +1063,20 @@ a.tg-link:hover {
 }
 
 .brand-icon {
+  font-size: 1.25rem !important;
+  line-height: 1;
+}
+.nav-icon {
+  font-size: 1.05rem !important;
+  line-height: 1;
+  opacity: 1;
+}
+.stat-icon {
+  font-size: 1.4rem !important;
+  line-height: 1;
+}
+
+.brand-icon {
   font-size: 0.7rem !important;
   font-weight: 700;
   letter-spacing: 0.02em;

@@ -160,6 +160,21 @@ def submit_claim_button(code: str) -> InlineKeyboardMarkup:
     )
 
 
+def withdraw_cancel_kb() -> InlineKeyboardMarkup:
+    """Shown under withdraw prompts so user can exit anytime."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Cancel",
+                    callback_data="payout:cancel",
+                    style="danger",
+                )
+            ]
+        ]
+    )
+
+
 def payout_method_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -644,12 +659,17 @@ async def withdraw_start(event: Message | CallbackQuery, state: FSMContext, bot:
             f"Available: <b>{cents_to_usd(user.balance_cents)}</b>\n"
             f"Minimum: {cents_to_usd(min_c)}\n"
             f"Maximum: {cents_to_usd(max_c)}\n\n"
-            f"Send the amount in USD (example: <code>5.00</code>)."
+            f"Send the amount in USD (example: <code>5.00</code>).\n"
+            f"Or tap <b>Cancel</b> below to exit."
         )
         if isinstance(event, CallbackQuery):
-            await event.message.answer(text, parse_mode=ParseMode.HTML)
+            await event.message.answer(
+                text, parse_mode=ParseMode.HTML, reply_markup=withdraw_cancel_kb()
+            )
         else:
-            await event.answer(text, parse_mode=ParseMode.HTML)
+            await event.answer(
+                text, parse_mode=ParseMode.HTML, reply_markup=withdraw_cancel_kb()
+            )
     await state.set_state(WithdrawStates.waiting_amount)
 
 
@@ -705,7 +725,11 @@ async def payout_method_cb(callback: CallbackQuery, state: FSMContext, bot: Bot)
         else "Send your <b>Binance ID</b> / email / UID used for receiving funds."
     )
     await typing(bot, callback.message.chat.id)
-    await callback.message.answer(prompt, parse_mode=ParseMode.HTML)
+    await callback.message.answer(
+        prompt + "\n\nOr tap <b>Cancel</b> below to exit.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=withdraw_cancel_kb(),
+    )
     await state.set_state(WithdrawStates.waiting_payout_details)
 
 
