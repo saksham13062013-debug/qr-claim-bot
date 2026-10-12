@@ -8,7 +8,7 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatAction, ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -45,6 +45,10 @@ def cents_to_usd(cents: int) -> str:
     return f"${cents / 100:.2f}"
 
 
+# ---------------------------------------------------------------------------
+# Keyboards – coloured styles (Bot API 9.4 / aiogram 3.20+)
+# ---------------------------------------------------------------------------
+
 def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -53,19 +57,48 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="Balance"),
             ],
             [
-                KeyboardButton(text="Wallet"),
-                KeyboardButton(text="Transaction History"),
-            ],
-            [
-                KeyboardButton(text="Withdraw"),
                 KeyboardButton(text="My Claims"),
+                KeyboardButton(text="Withdraw"),
             ],
             [
-                KeyboardButton(text="Help"),
+                KeyboardButton(text="History"),
                 KeyboardButton(text="Support"),
             ],
+            [KeyboardButton(text="Help")],
         ],
         resize_keyboard=True,
+        input_field_placeholder="Choose an option…",
+    )
+
+
+def nav_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Balance",
+                    callback_data="menu:balance",
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="Withdraw",
+                    callback_data="menu:withdraw",
+                    style="success",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="My Claims",
+                    callback_data="menu:claims",
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="Help",
+                    callback_data="menu:help",
+                    style="primary",
+                ),
+            ],
+        ]
     )
 
 
@@ -77,12 +110,14 @@ def force_join_kb(channels) -> InlineKeyboardMarkup:
             url = f"https://t.me/{ch.username.lstrip('@')}"
         if url:
             buttons.append(
-                [InlineKeyboardButton(text=f"Join {ch.title}", url=url)]
+                [InlineKeyboardButton(text=f"Join {ch.title}", url=url, style="primary")]
             )
     buttons.append(
         [
             InlineKeyboardButton(
-                text="Check Membership", callback_data="check_membership"
+                text="I Joined – Check Again",
+                callback_data="check_membership",
+                style="success",
             )
         ]
     )
@@ -110,7 +145,7 @@ def submit_claim_button(code: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="Submit Claim",
                     callback_data=f"submit_claim:{code}",
-                    style="primary",
+                    style="success",
                 )
             ],
             [
@@ -124,13 +159,89 @@ def submit_claim_button(code: str) -> InlineKeyboardMarkup:
     )
 
 
+def payout_method_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="UPI ID",
+                    callback_data="payout:upi",
+                    style="primary",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Binance ID",
+                    callback_data="payout:binance",
+                    style="primary",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Cancel",
+                    callback_data="payout:cancel",
+                    style="danger",
+                )
+            ],
+        ]
+    )
+
+
+def after_claim_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="View Balance",
+                    callback_data="menu:balance",
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="My Claims",
+                    callback_data="menu:claims",
+                    style="primary",
+                ),
+            ]
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# FSM
+# ---------------------------------------------------------------------------
+
 class WithdrawStates(StatesGroup):
     waiting_amount = State()
+    waiting_payout_details = State()
 
 
 class SupportStates(StatesGroup):
     waiting_message = State()
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+async def typing(bot: Bot, chat_id: int, seconds: float = 0.8) -> None:
+    try:
+        await bot.send_chat_action(chat_id, ChatAction.TYPING)
+        await asyncio.sleep(seconds)
+    except Exception:
+        pass
+
+
+async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 1.0) -> None:
+    try:
+        await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+        await asyncio.sleep(seconds)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# /start
+# ---------------------------------------------------------------------------
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
@@ -146,6 +257,8 @@ async def cmd_start(message: Message, bot: Bot):
         if not welcome:
             welcome = settings.bot_welcome_message
 
+    await typing(bot, message.chat.id)
+
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1].strip() if len(parts) > 1 else ""
     if payload.startswith("claim_"):
@@ -155,79 +268,145 @@ async def cmd_start(message: Message, bot: Bot):
             await _send_claim_preview(message, bot, code)
             return
 
-    await message.answer(welcome, reply_markup=main_menu_kb())
-
-
-@router.message(F.text == "How to Claim")
-async def how_to_claim(message: Message):
+    name = message.from_user.first_name or "there"
+    text = (
+        f"<b>Welcome, {name}!</b>\n\n"
+        f"{welcome}\n\n"
+        f"Use the menu below or the buttons to get started."
+    )
+    await message.answer(text, reply_markup=main_menu_kb(), parse_mode=ParseMode.HTML)
     await message.answer(
-        "<b>How to Claim a QR Reward</b>\n\n"
-        "1. Wait for a QR post (with QR image) in the channel.\n"
-        "2. Tap <b>CLAIM REWARD</b> under the post.\n"
-        "3. Join required channels if asked.\n"
-        "4. You will receive the <b>QR image</b> — then tap <b>Submit Claim</b>.\n"
-        "5. Wait for admin approval — reward goes to your wallet.\n\n"
-        "Each QR can be claimed by only <b>one</b> user.",
+        "Quick actions:",
+        reply_markup=nav_kb(),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(F.text == "Balance")
-@router.message(F.text == "Wallet")
-async def balance_cmd(message: Message):
+# ---------------------------------------------------------------------------
+# Menu handlers (text + callback)
+# ---------------------------------------------------------------------------
+
+@router.message(F.text == "How to Claim")
+@router.callback_query(F.data == "menu:help")
+async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
+    text = (
+        "<b>How to claim a reward</b>\n\n"
+        "1. When a reward is live, you get a <b>private message</b> from this bot.\n"
+        "2. Tap <b>CLAIM REWARD</b> (green).\n"
+        "3. Join any required channels if asked.\n"
+        "4. Review the QR image, then tap <b>Submit Claim</b>.\n"
+        "5. An admin reviews your claim. Once approved, the reward is credited to your wallet.\n"
+        "6. Withdraw via <b>UPI</b> or <b>Binance ID</b> when you reach the minimum.\n\n"
+        "<i>Each QR can be claimed by only one user.</i>"
+    )
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        await typing(bot, event.message.chat.id)
+        await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+    else:
+        await typing(bot, event.chat.id)
+        await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+
+
+@router.message(F.text.in_({"Balance", "Wallet"}))
+@router.callback_query(F.data == "menu:balance")
+async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
+    user_obj = event.from_user if isinstance(event, CallbackQuery) else event.from_user
+    chat_id = event.message.chat.id if isinstance(event, CallbackQuery) else event.chat.id
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await typing(bot, chat_id)
+
     async with get_db_context() as session:
         user = await user_service.get_or_create_user(
             session,
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
+            telegram_id=user_obj.id,
+            username=user_obj.username,
+            first_name=user_obj.first_name,
+            last_name=user_obj.last_name,
         )
-        pending = user.pending_cents
-        await message.answer(
-            f"<b>Wallet Balance</b>\n\n"
-            f"Available Balance:\n{cents_to_usd(user.balance_cents)}\n\n"
-            f"Pending:\n{cents_to_usd(int(pending))}\n\n"
-            f"Total Earned:\n{cents_to_usd(user.total_earned_cents)}",
-            parse_mode=ParseMode.HTML,
+        text = (
+            f"<b>Your wallet</b>\n\n"
+            f"Available: <b>{cents_to_usd(user.balance_cents)}</b>\n"
+            f"Pending: {cents_to_usd(int(user.pending_cents or 0))}\n"
+            f"Total earned: {cents_to_usd(user.total_earned_cents)}\n\n"
+            f"Withdraw when you reach the minimum balance."
         )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Withdraw",
+                        callback_data="menu:withdraw",
+                        style="success",
+                    ),
+                    InlineKeyboardButton(
+                        text="History",
+                        callback_data="menu:history",
+                        style="primary",
+                    ),
+                ]
+            ]
+        )
+        if isinstance(event, CallbackQuery):
+            await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        else:
+            await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.message(F.text == "Transaction History")
-async def tx_history(message: Message):
+@router.message(F.text.in_({"History", "Transaction History"}))
+@router.callback_query(F.data == "menu:history")
+async def tx_history(event: Message | CallbackQuery, bot: Bot):
+    user_obj = event.from_user
+    chat_id = event.message.chat.id if isinstance(event, CallbackQuery) else event.chat.id
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await typing(bot, chat_id)
+
     async with get_db_context() as session:
         user = await user_service.get_or_create_user(
             session,
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
+            telegram_id=user_obj.id,
+            username=user_obj.username,
+            first_name=user_obj.first_name,
+            last_name=user_obj.last_name,
         )
         txs, total = await get_transactions(session, user.id, offset=0, limit=10)
-    lines = [f"<b>Recent Transactions</b> (showing {len(txs)} of {total})\n"]
+    lines = [f"<b>Recent transactions</b> ({len(txs)} of {total})\n"]
     if not txs:
-        lines.append("No transactions yet.")
+        lines.append("No transactions yet. Claim a reward to get started.")
     for t in txs:
+        sign = "+" if t.amount_cents > 0 else ""
         lines.append(
-            f"{t.type.value}: {cents_to_usd(t.amount_cents)} "
-            f"-> {cents_to_usd(t.balance_after_cents)}\n"
-            f"{t.created_at}"
+            f"• <b>{t.type.value}</b>: {sign}{cents_to_usd(t.amount_cents)} "
+            f"→ balance {cents_to_usd(t.balance_after_cents)}"
         )
-    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    text = "\n".join(lines)
+    if isinstance(event, CallbackQuery):
+        await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+    else:
+        await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
 
 
 @router.message(F.text == "My Claims")
-async def my_claims(message: Message):
+@router.callback_query(F.data == "menu:claims")
+async def my_claims(event: Message | CallbackQuery, bot: Bot):
     from sqlalchemy import select
     from app.models import QRClaim
+
+    user_obj = event.from_user
+    chat_id = event.message.chat.id if isinstance(event, CallbackQuery) else event.chat.id
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await typing(bot, chat_id)
 
     async with get_db_context() as session:
         user = await user_service.get_or_create_user(
             session,
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
+            telegram_id=user_obj.id,
+            username=user_obj.username,
+            first_name=user_obj.first_name,
+            last_name=user_obj.last_name,
         )
         result = await session.execute(
             select(QRClaim)
@@ -236,45 +415,67 @@ async def my_claims(message: Message):
             .limit(15)
         )
         claims = result.scalars().all()
-    lines = ["<b>My Claims</b>\n"]
+    lines = ["<b>Your claims</b>\n"]
     if not claims:
-        lines.append("No claims yet.")
+        lines.append("No claims yet. Watch for reward notifications in this chat.")
     for c in claims:
         lines.append(
-            f"#{c.id} {cents_to_usd(c.reward_cents)} — <b>{c.status.value}</b>\n"
-            f"{c.created_at}"
+            f"#{c.id} — {cents_to_usd(c.reward_cents)} — <b>{c.status.value}</b>"
         )
-    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    text = "\n".join(lines)
+    if isinstance(event, CallbackQuery):
+        await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+    else:
+        await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
 
 
 @router.message(F.text == "Help")
-async def help_cmd(message: Message):
+async def help_cmd(message: Message, bot: Bot):
+    await typing(bot, message.chat.id)
     await message.answer(
         "<b>Help</b>\n\n"
-        "• Use the menu buttons to navigate.\n"
-        "• Claim QR rewards from channel posts.\n"
-        "• Check Balance / Wallet for your funds.\n"
-        "• Request withdrawals when you reach the minimum.\n"
-        "• Contact support via Support if needed.\n",
+        "• <b>How to Claim</b> — step-by-step guide\n"
+        "• <b>Balance</b> — wallet balance and pending funds\n"
+        "• <b>My Claims</b> — status of your reward claims\n"
+        "• <b>Withdraw</b> — request payout via UPI or Binance\n"
+        "• <b>History</b> — recent wallet transactions\n"
+        "• <b>Support</b> — message the admin team\n\n"
+        "Rewards are sent as private messages. Only one user can claim each QR.",
         parse_mode=ParseMode.HTML,
+        reply_markup=nav_kb(),
     )
 
 
+# ---------------------------------------------------------------------------
+# Withdraw: amount → UPI / Binance → details
+# ---------------------------------------------------------------------------
+
 @router.message(F.text == "Withdraw")
-async def withdraw_start(message: Message, state: FSMContext):
+@router.callback_query(F.data == "menu:withdraw")
+async def withdraw_start(event: Message | CallbackQuery, state: FSMContext, bot: Bot):
+    user_obj = event.from_user
+    chat_id = event.message.chat.id if isinstance(event, CallbackQuery) else event.chat.id
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await typing(bot, chat_id)
+
     async with get_db_context() as session:
         wd_on = await settings_service.get_setting_bool(
             session, "withdrawals_enabled", True
         )
         if not wd_on:
-            await message.answer("Withdrawals are temporarily disabled.")
+            text = "Withdrawals are temporarily disabled. Please try again later."
+            if isinstance(event, CallbackQuery):
+                await event.message.answer(text)
+            else:
+                await event.answer(text)
             return
         user = await user_service.get_or_create_user(
             session,
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
+            telegram_id=user_obj.id,
+            username=user_obj.username,
+            first_name=user_obj.first_name,
+            last_name=user_obj.last_name,
         )
         min_c = await settings_service.get_setting_int(
             session, "min_withdrawal_cents", settings.min_withdrawal_cents
@@ -282,27 +483,91 @@ async def withdraw_start(message: Message, state: FSMContext):
         max_c = await settings_service.get_setting_int(
             session, "max_withdrawal_cents", settings.max_withdrawal_cents
         )
-        await message.answer(
-            f"<b>Withdraw</b>\n\n"
-            f"Available: {cents_to_usd(user.balance_cents)}\n"
-            f"Min: {cents_to_usd(min_c)} | Max: {cents_to_usd(max_c)}\n\n"
-            f"Send the amount in USD (e.g. 5.00)",
-            parse_mode=ParseMode.HTML,
+        text = (
+            f"<b>Withdraw funds</b>\n\n"
+            f"Available: <b>{cents_to_usd(user.balance_cents)}</b>\n"
+            f"Minimum: {cents_to_usd(min_c)}\n"
+            f"Maximum: {cents_to_usd(max_c)}\n\n"
+            f"Send the amount in USD (example: <code>5.00</code>)."
         )
+        if isinstance(event, CallbackQuery):
+            await event.message.answer(text, parse_mode=ParseMode.HTML)
+        else:
+            await event.answer(text, parse_mode=ParseMode.HTML)
     await state.set_state(WithdrawStates.waiting_amount)
 
 
 @router.message(WithdrawStates.waiting_amount)
-async def withdraw_amount(message: Message, state: FSMContext):
+async def withdraw_amount(message: Message, state: FSMContext, bot: Bot):
     raw = (message.text or "").strip().replace("$", "")
     try:
         amount = float(raw)
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("Invalid amount. Send a number like 5.00")
+        await message.answer(
+            "Invalid amount. Send a number like <code>5.00</code>.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     amount_cents = int(round(amount * 100))
+    await state.update_data(amount_cents=amount_cents)
+    await typing(bot, message.chat.id)
+    await message.answer(
+        f"<b>Payout method</b>\n\n"
+        f"Amount: <b>{cents_to_usd(amount_cents)}</b>\n\n"
+        f"How would you like to receive payment?\n"
+        f"An admin will pay you manually after review.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=payout_method_kb(),
+    )
+    await state.set_state(WithdrawStates.waiting_payout_details)
+
+
+@router.callback_query(F.data.startswith("payout:"))
+async def payout_method_cb(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    action = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if action == "cancel":
+        await state.clear()
+        await callback.message.answer(
+            "Withdrawal cancelled.",
+            reply_markup=main_menu_kb(),
+        )
+        return
+    if action not in ("upi", "binance"):
+        return
+    data = await state.get_data()
+    if not data.get("amount_cents"):
+        await state.clear()
+        await callback.message.answer("Session expired. Start again with Withdraw.")
+        return
+    await state.update_data(payout_method=action.upper())
+    prompt = (
+        "Send your <b>UPI ID</b> (example: <code>name@upi</code>)."
+        if action == "upi"
+        else "Send your <b>Binance ID</b> / email / UID used for receiving funds."
+    )
+    await typing(bot, callback.message.chat.id)
+    await callback.message.answer(prompt, parse_mode=ParseMode.HTML)
+    await state.set_state(WithdrawStates.waiting_payout_details)
+
+
+@router.message(WithdrawStates.waiting_payout_details)
+async def withdraw_payout_details(message: Message, state: FSMContext, bot: Bot):
+    details = (message.text or "").strip()
+    if len(details) < 3:
+        await message.answer("Please send a valid UPI ID or Binance ID.")
+        return
+    data = await state.get_data()
+    amount_cents = data.get("amount_cents")
+    method = data.get("payout_method", "UPI")
+    if not amount_cents:
+        await state.clear()
+        await message.answer("Session expired. Use Withdraw from the menu.")
+        return
+
+    await typing(bot, message.chat.id, 1.2)
     async with get_db_context() as session:
         user = await user_service.get_or_create_user(
             session,
@@ -312,15 +577,35 @@ async def withdraw_amount(message: Message, state: FSMContext):
             last_name=message.from_user.last_name,
         )
         try:
-            w = await create_withdrawal(session, user.id, amount_cents)
+            w = await create_withdrawal(
+                session,
+                user.id,
+                amount_cents,
+                payout_method=method,
+                payout_details=details[:255],
+            )
             await message.answer(
-                f"<b>Withdrawal Request Submitted</b>\n\n"
-                f"Amount: {cents_to_usd(w.amount_cents)}\n"
-                f"Status: Pending\n\n"
-                f"An admin will process it manually.",
+                f"<b>Withdrawal submitted</b>\n\n"
+                f"Amount: <b>{cents_to_usd(w.amount_cents)}</b>\n"
+                f"Method: <b>{method}</b>\n"
+                f"Details: <code>{details[:80]}</code>\n"
+                f"Status: <b>Pending</b>\n\n"
+                f"An admin will process this manually and mark it paid when complete.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=main_menu_kb(),
             )
+            # Notify admin panel via push event store is handled on API poll; optional TG to owner
+            try:
+                if settings.owner_telegram_id:
+                    await bot.send_message(
+                        settings.owner_telegram_id,
+                        f"New withdrawal #{w.id}\n"
+                        f"User: {message.from_user.id}\n"
+                        f"Amount: {cents_to_usd(w.amount_cents)}\n"
+                        f"{method}: {details[:80]}",
+                    )
+            except Exception:
+                pass
         except ValueError as e:
             err = str(e)
             if err.startswith("MINIMUM"):
@@ -335,10 +620,85 @@ async def withdraw_amount(message: Message, state: FSMContext):
     await state.clear()
 
 
+# ---------------------------------------------------------------------------
+# Support
+# ---------------------------------------------------------------------------
+
+@router.message(F.text == "Support")
+@router.message(Command("support"))
+async def support_start(message: Message, state: FSMContext, bot: Bot):
+    await typing(bot, message.chat.id)
+    await state.set_state(SupportStates.waiting_message)
+    await message.answer(
+        "<b>Support</b>\n\n"
+        "Describe your issue in one message. An admin will reply here.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Cancel",
+                        callback_data="support:cancel",
+                        style="danger",
+                    )
+                ]
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == "support:cancel")
+async def support_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer("Cancelled")
+    await callback.message.answer("Support cancelled.", reply_markup=main_menu_kb())
+
+
+@router.message(SupportStates.waiting_message)
+async def support_message(message: Message, state: FSMContext, bot: Bot):
+    from app.models import SupportTicket, TicketStatus
+
+    text = (message.text or "").strip()
+    if not text or len(text) < 3:
+        await message.answer("Please send a longer message.")
+        return
+    await typing(bot, message.chat.id)
+    async with get_db_context() as session:
+        user = await user_service.get_or_create_user(
+            session,
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+        )
+        ticket = SupportTicket(
+            user_id=user.id,
+            subject=text[:80],
+            message=text[:4000],
+            status=TicketStatus.OPEN,
+        )
+        session.add(ticket)
+        await session.commit()
+        tid = ticket.id
+    await state.clear()
+    await message.answer(
+        f"<b>Ticket #{tid} created</b>\n\nWe will reply in this chat.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=main_menu_kb(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Claim flow
+# ---------------------------------------------------------------------------
+
 async def _send_claim_preview(target, bot: Bot, code: str) -> None:
     from app.services.qr_image_service import claim_payload, generate_qr_png_bytes
 
     code = code.upper().strip()
+    chat_id = target.chat.id if hasattr(target, "chat") else target.message.chat.id
+    await uploading_photo(bot, chat_id)
+
     async with get_db_context() as session:
         qr = await qr_service.get_qr_by_code(session, code)
         if not qr:
@@ -346,22 +706,26 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             return
         if qr.status.value in ("CLAIMED", "PENDING", "APPROVED"):
             await target.answer(
-                "<b>QR Already Claimed</b>\n\n"
-                "This QR has already been successfully claimed by another user.",
+                "<b>Already claimed</b>\n\n"
+                "This QR has already been claimed by another user.",
                 parse_mode=ParseMode.HTML,
+                reply_markup=nav_kb(),
             )
             return
         if qr.status.value in ("DISABLED", "EXPIRED", "REJECTED"):
-            await target.answer(f"This QR is not available ({qr.status.value}).")
+            await target.answer(
+                f"This QR is not available ({qr.status.value}).",
+                reply_markup=nav_kb(),
+            )
             return
 
         reward = cents_to_usd(qr.reward_cents)
         caption = (
-            f"<b>Your QR Reward</b>\n\n"
+            f"<b>Your QR reward</b>\n\n"
             f"Code: <code>{qr.code}</code>\n"
             f"Reward: <b>{reward}</b>\n"
             f"Status: {qr.status.value}\n\n"
-            f"Press <b>Submit Claim</b> below to submit for approval."
+            f"Tap <b>Submit Claim</b> to send this for admin approval."
         )
         if qr.image_png:
             png = qr.image_png
@@ -380,7 +744,7 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
                 )
             else:
                 await bot.send_photo(
-                    chat_id=target.chat.id,
+                    chat_id=chat_id,
                     photo=photo,
                     caption=caption,
                     parse_mode=ParseMode.HTML,
@@ -399,6 +763,7 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
     code = callback.data.split(":", 1)[1]
     user = callback.from_user
     await callback.answer()
+    await typing(bot, callback.message.chat.id)
 
     async with get_db_context() as session:
         db_user = await user_service.get_or_create_user(
@@ -436,11 +801,15 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                 )
                 if not all_ok:
                     await callback.message.answer(
-                        "Please join all required channels first.",
+                        "<b>Join required channels</b>\n\n"
+                        "Please join the channels below, then tap "
+                        "<b>I Joined – Check Again</b>.",
+                        parse_mode=ParseMode.HTML,
                         reply_markup=force_join_kb(missing),
                     )
                     return
 
+    await callback.message.answer("Preparing your QR…")
     await _send_claim_preview(callback.message, bot, code)
 
 
@@ -449,6 +818,7 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
     code = callback.data.split(":", 1)[1]
     user = callback.from_user
     await callback.answer("Submitting…")
+    await typing(bot, callback.message.chat.id, 1.0)
 
     async with get_db_context() as session:
         db_user = await user_service.get_or_create_user(
@@ -488,38 +858,58 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
 
             if claim.status.value == "APPROVED":
                 text = (
-                    f"<b>Claim Approved</b>\n\n"
+                    f"<b>Claim approved</b>\n\n"
                     f"QR: <code>{qr.code}</code>\n"
-                    f"Reward: {cents_to_usd(qr.reward_cents)}\n"
-                    f"Status: Approved (auto)\n\n"
-                    f"Reward credited to your wallet."
+                    f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
+                    f"Status: Approved\n\n"
+                    f"The reward has been credited to your wallet."
                 )
             else:
                 text = (
-                    f"<b>Claim Submitted</b>\n\n"
+                    f"<b>Claim submitted</b>\n\n"
                     f"QR: <code>{qr.code}</code>\n"
-                    f"Reward: {cents_to_usd(qr.reward_cents)}\n"
-                    f"Status: Pending Approval\n\n"
-                    f"Your claim is waiting for admin approval."
+                    f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
+                    f"Status: Pending approval\n\n"
+                    f"You will be notified when an admin reviews this claim."
                 )
             try:
                 await callback.message.edit_caption(
-                    caption=text, parse_mode=ParseMode.HTML, reply_markup=None
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=after_claim_kb(),
                 )
             except Exception:
-                await callback.message.answer(text, parse_mode=ParseMode.HTML)
+                await callback.message.answer(
+                    text, parse_mode=ParseMode.HTML, reply_markup=after_claim_kb()
+                )
+            # Alert owner
+            try:
+                if settings.owner_telegram_id:
+                    await bot.send_message(
+                        settings.owner_telegram_id,
+                        f"New claim #{claim.id}\n"
+                        f"QR: {qr.code}\n"
+                        f"User: {user.id} (@{user.username or '—'})\n"
+                        f"Reward: {cents_to_usd(qr.reward_cents)}\n"
+                        f"Status: {claim.status.value}",
+                    )
+            except Exception:
+                pass
         except ValueError as e:
             err = str(e)
             if err == "QR_ALREADY_CLAIMED":
                 await callback.message.answer(
-                    "<b>QR Already Claimed</b>\n\n"
-                    "This QR has already been successfully claimed by another user.",
+                    "<b>Already claimed</b>\n\n"
+                    "This QR has already been claimed by another user.",
                     parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
                 )
             elif err == "QR_NOT_FOUND":
                 await callback.message.answer("Invalid or unknown QR code.")
             elif err == "QR_EXPIRED":
-                await callback.message.answer("This QR has expired.")
+                await callback.message.answer(
+                    "This QR has expired.", reply_markup=nav_kb()
+                )
             elif err.startswith("QR_"):
                 await callback.message.answer(
                     f"This QR is not available ({err.replace('QR_', '')})."
@@ -536,15 +926,17 @@ async def cancel_claim_callback(callback: CallbackQuery):
     await callback.answer("Cancelled")
     try:
         await callback.message.edit_caption(
-            caption="Claim cancelled.", reply_markup=None
+            caption="Claim cancelled.",
+            reply_markup=nav_kb(),
         )
     except Exception:
-        await callback.message.answer("Claim cancelled.")
+        await callback.message.answer("Claim cancelled.", reply_markup=main_menu_kb())
 
 
 @router.callback_query(F.data == "check_membership")
 async def check_membership_cb(callback: CallbackQuery, bot: Bot):
     await callback.answer("Checking…")
+    await typing(bot, callback.message.chat.id)
     user = callback.from_user
     async with get_db_context() as session:
         channels = await force_join_service.get_active_required_channels(session)
@@ -553,57 +945,21 @@ async def check_membership_cb(callback: CallbackQuery, bot: Bot):
         )
     if all_ok:
         await callback.message.answer(
-            "You have joined all required channels!\n"
-            "You can now claim QR rewards."
+            "<b>Membership verified</b>\n\n"
+            "You can now claim QR rewards when they are sent to you.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=nav_kb(),
         )
     else:
         await callback.message.answer(
-            "You still need to join the following channels:",
+            "You still need to join the channels below:",
             reply_markup=force_join_kb(missing),
         )
 
 
-@router.message(F.text == "Support")
-@router.message(Command("support"))
-async def support_start(message: Message, state: FSMContext):
-    await state.set_state(SupportStates.waiting_message)
-    await message.answer(
-        "<b>Support</b>\n\nSend your message in one text (problem / question).",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.message(SupportStates.waiting_message)
-async def support_message(message: Message, state: FSMContext):
-    from app.models import SupportTicket, TicketStatus
-
-    text = (message.text or "").strip()
-    if not text or len(text) < 3:
-        await message.answer("Please send a longer message.")
-        return
-    async with get_db_context() as session:
-        user = await user_service.get_or_create_user(
-            session,
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-        ticket = SupportTicket(
-            user_id=user.id,
-            subject=text[:80],
-            message=text[:4000],
-            status=TicketStatus.OPEN,
-        )
-        session.add(ticket)
-        await session.commit()
-        tid = ticket.id
-    await state.clear()
-    await message.answer(
-        f"Ticket #{tid} created. An admin will reply here.",
-        reply_markup=main_menu_kb(),
-    )
-
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
 
 def get_bot() -> Optional[Bot]:
     return _bot

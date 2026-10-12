@@ -346,6 +346,10 @@ class Withdrawal(Base):
         nullable=False,
         index=True,
     )
+    payout_method: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True
+    )  # UPI | BINANCE
+    payout_details: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     reviewed_by_admin_id: Mapped[Optional[int]] = mapped_column(
@@ -369,6 +373,23 @@ class Withdrawal(Base):
 
     __table_args__ = (
         CheckConstraint("amount_cents > 0", name="ck_withdrawal_amount_positive"),
+    )
+
+
+class PushSubscription(Base):
+    """Browser push subscription for admin Chrome notifications."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
+    auth: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

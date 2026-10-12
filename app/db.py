@@ -80,6 +80,12 @@ async def init_db() -> None:
         await conn.execute(text(
             "ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS scheduled_chat_id VARCHAR(64)"
         ))
+        await conn.execute(text(
+            "ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_method VARCHAR(32)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_details VARCHAR(255)"
+        ))
     logger.info("Database tables initialized")
 
 

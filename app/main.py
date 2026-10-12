@@ -105,6 +105,28 @@ async def lifespan(app: FastAPI):
                                     logger.warning("Scheduled DM failed: %s", e)
                             session.add(qr)
                         await session.commit()
+                # Auto-expire QR codes past expires_at
+                async with get_db_context() as session:
+                    now = datetime.now(timezone.utc)
+                    from sqlalchemy import update
+                    from app.models import QRCode, QRStatus
+
+                    await session.execute(
+                        update(QRCode)
+                        .where(
+                            QRCode.expires_at.is_not(None),
+                            QRCode.expires_at <= now,
+                            QRCode.status.in_(
+                                [
+                                    QRStatus.AVAILABLE,
+                                    QRStatus.POSTED,
+                                    QRStatus.RECLAIMED,
+                                ]
+                            ),
+                        )
+                        .values(status=QRStatus.EXPIRED)
+                    )
+                    await session.commit()
             except Exception as e:
                 logger.warning("schedule loop: %s", e)
             await asyncio.sleep(30)

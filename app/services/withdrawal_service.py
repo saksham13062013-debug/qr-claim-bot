@@ -30,6 +30,8 @@ async def create_withdrawal(
     session: AsyncSession,
     user_id: int,
     amount_cents: int,
+    payout_method: Optional[str] = None,
+    payout_details: Optional[str] = None,
 ) -> Withdrawal:
     if amount_cents < settings.min_withdrawal_cents:
         raise ValueError(f"MINIMUM_WITHDRAWAL_{settings.min_withdrawal_cents}")
@@ -57,10 +59,16 @@ async def create_withdrawal(
         description=f"Withdrawal request {ref}",
     )
 
+    method = (payout_method or "").upper() or None
+    if method and method not in ("UPI", "BINANCE"):
+        method = None
+
     withdrawal = Withdrawal(
         user_id=user.id,
         amount_cents=amount_cents,
         status=WithdrawalStatus.PENDING,
+        payout_method=method,
+        payout_details=(payout_details or "")[:255] or None,
     )
     session.add(withdrawal)
     await session.flush()
@@ -71,7 +79,10 @@ async def create_withdrawal(
         actor_user_id=user.id,
         target_type="withdrawal",
         target_id=str(withdrawal.id),
-        metadata={"amount_cents": amount_cents},
+        metadata={
+            "amount_cents": amount_cents,
+            "payout_method": method,
+        },
     )
     return withdrawal
 
