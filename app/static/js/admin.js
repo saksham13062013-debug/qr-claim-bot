@@ -239,9 +239,14 @@ async function loadPage(page) {
       audit: renderAudit,
       reset: renderReset,
     };
-    await (handlers[page] || renderDashboard)();
+    const fn = handlers[page];
+    if (!fn) {
+      content.innerHTML = `<div class="error-banner">Unknown page: ${escapeHtml(page)}</div>`;
+      return;
+    }
+    await fn();
   } catch (err) {
-    content.innerHTML = `<div class="error-banner">${escapeHtml(err.message)}</div>`;
+    content.innerHTML = `<div class="error-banner">${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -394,6 +399,7 @@ async function renderUsers(q = "") {
       <td>
         <div class="btn-group">
           <button class="btn btn-sm btn-outline" onclick="viewUser(${u.id})">View</button>
+          <button class="btn btn-sm btn-primary" onclick="showSendDM(${u.telegram_id}, '${escapeHtml(u.username || "")}')">DM</button>
           ${u.status === "ACTIVE"
             ? `<button class="btn btn-sm btn-danger" onclick="toggleUser(${u.id},'disable')">Disable</button>`
             : `<button class="btn btn-sm btn-success" onclick="toggleUser(${u.id},'enable')">Enable</button>`}
@@ -403,6 +409,11 @@ async function renderUsers(q = "") {
   `).join("");
 
   document.getElementById("content").innerHTML = `
+    <div class="toolbar">
+      <button class="btn btn-primary btn-sm" onclick="showSendDM()">Send DM to user</button>
+      <div class="spacer"></div>
+      <span class="muted" style="font-size:0.85rem">${data.total} total</span>
+    </div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>ID</th><th>Telegram</th><th>Username</th><th>Name</th>
@@ -412,6 +423,37 @@ async function renderUsers(q = "") {
     </table></div>
     ${pagination(data.total)}
   `;
+}
+
+function showSendDM(telegramId = "", username = "") {
+  openModal("Send DM to user", `
+    <div class="form-group">
+      <label>Telegram ID *</label>
+      <input type="number" id="dmTgId" value="${telegramId || ""}" placeholder="e.g. 123456789" />
+    </div>
+    <div class="form-group">
+      <label>Message * (HTML allowed: &lt;b&gt;, &lt;code&gt;)</label>
+      <textarea id="dmMessage" rows="5" placeholder="Your message to the user…"></textarea>
+    </div>
+    ${username ? `<p class="muted">User: @${escapeHtml(username)}</p>` : ""}
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doSendDM()">Send DM</button>
+  `);
+}
+
+async function doSendDM() {
+  const telegram_id = parseInt(document.getElementById("dmTgId").value, 10);
+  const message = document.getElementById("dmMessage").value.trim();
+  if (!telegram_id || !message) {
+    toast("Telegram ID and message required", "error");
+    return;
+  }
+  try {
+    await api("/admin/dm", { method: "POST", body: { telegram_id, message } });
+    toast("DM sent");
+    closeModal();
+  } catch (e) { toast(e.message, "error"); }
 }
 
 async function viewUser(id) {
@@ -436,6 +478,7 @@ async function viewUser(id) {
     </div>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Close</button>
+    <button class="btn btn-primary" onclick="showSendDM(${u.telegram_id}, '${escapeHtml(u.username || "")}')">Send DM</button>
     <button class="btn btn-primary" onclick="doAdjust(${id})">Adjust Balance</button>
   `);
 }
@@ -484,8 +527,9 @@ async function renderQRs(status = "") {
           <button class="btn btn-sm btn-outline" onclick="uploadQRImage(${q.id})" title="Upload your QR image">${q.has_image ? "🖼 Change" : "📤 Upload"}</button>
           <button class="btn btn-sm btn-outline" onclick="cloneQR(${q.id})">Clone</button>
           <button class="btn btn-sm btn-outline" onclick="scheduleQR(${q.id})">⏱</button>
-          ${["AVAILABLE","RECLAIMED"].includes(q.status)
-            ? `<button class="btn btn-sm btn-primary" onclick="postQR(${q.id})" title="DM all users">Notify Users</button>` : ""}
+          ${["AVAILABLE","RECLAIMED","POSTED"].includes(q.status)
+            ? `<button class="btn btn-sm btn-primary" onclick="postQR(${q.id})" title="DM all users">Notify All</button>
+               <button class="btn btn-sm btn-outline" onclick="notifyOneUser(${q.id})" title="DM one user">Notify One</button>` : ""}
           ${!["DISABLED","EXPIRED"].includes(q.status)
             ? `<button class="btn btn-sm btn-warning" onclick="reclaimQR(${q.id})">Reclaim</button>` : ""}
           ${q.status !== "DISABLED"
@@ -559,6 +603,33 @@ async function postQR(id) {
   try {
     const res = await api(`/admin/qrs/${id}/post`, { method: "POST", body: {} });
     toast(res.message || "Users notified via DM");
+    renderQRs();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function notifyOneUser(qrId) {
+  openModal("Notify one user", `
+    <p class="muted">Send this QR claim button to a single user via private DM.</p>
+    <div class="form-group">
+      <label>Telegram ID *</label>
+      <input type="number" id="notifyTgId" placeholder="e.g. 123456789" />
+    </div>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="doNotifyOneUser(${qrId})">Send</button>
+  `);
+}
+
+async function doNotifyOneUser(qrId) {
+  const telegram_id = parseInt(document.getElementById("notifyTgId").value, 10);
+  if (!telegram_id) { toast("Telegram ID required", "error"); return; }
+  try {
+    const res = await api(`/admin/qrs/${qrId}/notify-user`, {
+      method: "POST",
+      body: { telegram_id },
+    });
+    toast(res.message || "DM sent");
+    closeModal();
     renderQRs();
   } catch (e) { toast(e.message, "error"); }
 }

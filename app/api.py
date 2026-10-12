@@ -1309,6 +1309,85 @@ async def export_withdrawals(
     )
 
 
+# ---- Direct message / notify one user ----
+
+
+class DirectMessageRequest(BaseModel):
+    telegram_id: int
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class NotifyUserRequest(BaseModel):
+    telegram_id: int
+
+
+@router.post("/admin/dm")
+async def send_direct_message(
+    body: DirectMessageRequest,
+    admin: Admin = Depends(require_perm("users.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.bot import get_bot
+
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(503, "Bot is offline")
+    try:
+        await bot.send_message(
+            chat_id=body.telegram_id,
+            text=body.message,
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Failed to send DM: {type(e).__name__}: {e}")
+    await write_audit(
+        session,
+        action=AuditAction.BROADCAST_SENT,
+        actor_admin_id=admin.id,
+        target_type="user",
+        target_id=str(body.telegram_id),
+        metadata={"kind": "dm"},
+    )
+    return {"ok": True, "message": "DM sent"}
+
+
+@router.post("/admin/qrs/{qr_id}/notify-user")
+async def notify_one_user(
+    qr_id: int,
+    body: NotifyUserRequest,
+    admin: Admin = Depends(require_perm("qr.post")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.bot import claim_button, get_bot
+
+    qr = await qr_service.get_qr_by_id(session, qr_id)
+    if not qr:
+        raise HTTPException(404, "QR not found")
+    if qr.status in (QRStatus.DISABLED, QRStatus.EXPIRED, QRStatus.CLAIMED):
+        raise HTTPException(400, f"QR not available ({qr.status.value})")
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(503, "Bot is offline")
+    try:
+        if qr.status in (QRStatus.AVAILABLE, QRStatus.RECLAIMED):
+            await qr_service.mark_qr_posted(session, qr, admin.id)
+        msg = (
+            f"<b>NEW QR REWARD</b>\n\n"
+            f"Reward: ${qr.reward_cents / 100:.2f}\n"
+            f"One user only!\n\n"
+            f"Tap <b>CLAIM REWARD</b> below. You will get the QR image in this chat."
+        )
+        await bot.send_message(
+            chat_id=body.telegram_id,
+            text=msg,
+            reply_markup=claim_button(qr.code),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Failed to notify user: {type(e).__name__}: {e}")
+    return {"ok": True, "message": f"QR sent to Telegram ID {body.telegram_id}"}
+
+
 # ---- Admin role management (OWNER) ----
 
 
