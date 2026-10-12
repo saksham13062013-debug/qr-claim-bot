@@ -280,7 +280,10 @@ async def list_qrs(
 ) -> tuple[Sequence[QRCode], int]:
     from sqlalchemy import func
 
-    q = select(QRCode).options(selectinload(QRCode.claimed_by))
+    q = select(QRCode).options(
+        selectinload(QRCode.claimed_by),
+        selectinload(QRCode.created_by),
+    )
     count_q = select(func.count()).select_from(QRCode)
     if status:
         q = q.where(QRCode.status == status)

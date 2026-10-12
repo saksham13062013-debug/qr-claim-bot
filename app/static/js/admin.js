@@ -39,7 +39,12 @@ async function api(path, opts = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || data.message || `Error ${res.status}`);
+    let msg = data.message || `Error ${res.status}`;
+    if (typeof data.detail === "string") msg = data.detail;
+    else if (Array.isArray(data.detail)) {
+      msg = data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    } else if (data.detail) msg = String(data.detail);
+    throw new Error(msg);
   }
   return data;
 }
@@ -519,14 +524,16 @@ async function renderQRs(status = "") {
       <td><strong>${cents(q.reward_cents)}</strong></td>
       <td>${badge(q.status)}</td>
       <td>${escapeHtml(q.campaign_name || "—")}</td>
+      <td>${escapeHtml(q.created_by_username || "—")}</td>
       <td>${fmtDate(q.created_at)}</td>
       <td>${fmtDate(q.expires_at)}</td>
-      <td>${q.claimed_by_user_id ? tgUserLink(q.claimed_by_username, q.claimed_by_telegram_id, q.claimed_by_first_name, null) : "—"}</td>
+      <td>${q.claimed_by_user_id
+        ? tgUserLink(q.claimed_by_username, q.claimed_by_telegram_id, q.claimed_by_first_name, q.claimed_by_last_name)
+        : "—"}</td>
       <td>
         <div class="btn-group">
-          <button class="btn btn-sm btn-outline" onclick="uploadQRImage(${q.id})" title="Upload your QR image">${q.has_image ? "🖼 Change" : "📤 Upload"}</button>
+          <button class="btn btn-sm btn-outline" onclick="uploadQRImage(${q.id})" title="Upload your QR image">${q.has_image ? "Change Img" : "Upload"}</button>
           <button class="btn btn-sm btn-outline" onclick="cloneQR(${q.id})">Clone</button>
-          <button class="btn btn-sm btn-outline" onclick="scheduleQR(${q.id})">⏱</button>
           ${["AVAILABLE","RECLAIMED","POSTED"].includes(q.status)
             ? `<button class="btn btn-sm btn-primary" onclick="postQR(${q.id})" title="DM all users">Notify All</button>
                <button class="btn btn-sm btn-outline" onclick="notifyOneUser(${q.id})" title="DM one user">Notify One</button>` : ""}
@@ -547,14 +554,14 @@ async function renderQRs(status = "") {
           .map((s) => `<option value="${s}" ${s===status?"selected":""}>${s}</option>`).join("")}
       </select>
       <div class="spacer"></div>
-      <span style="color:var(--muted);font-size:0.85rem">${data.total} total</span>
+      <span style="color:var(--muted);font-size:0.85rem">${data.total} total · live</span>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Code</th><th>Reward</th><th>Status</th><th>Campaign</th>
-        <th>Created</th><th>Expires</th><th>Claimed By</th><th>Actions</th>
+        <th>Created By</th><th>Created</th><th>Expires</th><th>Claimed By</th><th>Actions</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="8">${emptyState("🎟", "No QR codes yet")}</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="9">${emptyState("QR", "No QR codes yet")}</td></tr>`}</tbody>
     </table></div>
     ${pagination(data.total)}
   `;
@@ -844,19 +851,36 @@ async function renderChannels() {
       <td>@${escapeHtml(c.username || "—")}</td>
       <td>${c.is_active ? badge("ACTIVE") : badge("DISABLED")}</td>
       <td>${c.is_required ? "Yes" : "No"}</td>
-      <td><button class="btn btn-sm btn-outline" onclick='editChannel(${JSON.stringify(c)})'>Edit</button></td>
+      <td>
+        <div class="btn-group">
+          <button class="btn btn-sm btn-outline" onclick='editChannel(${JSON.stringify(c).replace(/'/g, "&#39;")})'>Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteChannel(${c.id})">Delete</button>
+        </div>
+      </td>
     </tr>
   `).join("");
 
   document.getElementById("content").innerHTML = `
+    <p class="muted" style="margin-bottom:0.75rem;font-size:0.85rem">
+      Bot must be admin in the channel. Channel ID is negative for supergroups (e.g. -1001234567890).
+    </p>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>ID</th><th>Channel ID</th><th>Title</th><th>Username</th>
         <th>Active</th><th>Required</th><th>Actions</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="7">${emptyState("📢", "No force-join channels")}</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="7">${emptyState("Channels", "No force-join channels")}</td></tr>`}</tbody>
     </table></div>
   `;
+}
+
+async function deleteChannel(id) {
+  if (!confirm("Remove this force-join channel?")) return;
+  try {
+    await api(`/admin/channels/${id}`, { method: "DELETE" });
+    toast("Channel removed");
+    renderChannels();
+  } catch (e) { toast(e.message, "error"); }
 }
 
 function showAddChannel() {
@@ -1137,10 +1161,56 @@ function pagination(total) {
       (me.username || "A").charAt(0).toUpperCase();
 
     navigate("dashboard");
+
+    // Live auto-refresh every 1 second (tables). Dashboard every 5s.
+    setInterval(() => {
+      const modal = document.getElementById("modal");
+      if (modal && !modal.classList.contains("hidden")) return;
+      if (!currentPage) return;
+      softRefresh();
+    }, 1000);
   } catch {
     window.location.href = "/";
   }
 })();
+
+let _refreshing = false;
+let _dashTick = 0;
+async function softRefresh() {
+  if (_refreshing) return;
+  // Dashboard: refresh every 5s to avoid chart flicker
+  if (currentPage === "dashboard") {
+    _dashTick++;
+    if (_dashTick % 5 !== 0) return;
+  } else {
+    _dashTick = 0;
+  }
+  // Skip pages that are form-only (typing)
+  if (["broadcast", "settings", "reset"].includes(currentPage)) return;
+  _refreshing = true;
+  try {
+    const handlers = {
+      dashboard: renderDashboard,
+      users: () => renderUsers(document.getElementById("userSearch")?.value || ""),
+      qrs: () => renderQRs(document.getElementById("qrFilter")?.value || ""),
+      claims: () => renderClaims(
+        document.querySelector("#content select")?.value || "PENDING"
+      ),
+      withdrawals: renderWithdrawals,
+      channels: renderChannels,
+      campaigns: renderCampaigns,
+      tickets: renderTickets,
+      admins: renderAdmins,
+      audit: renderAudit,
+    };
+    const fn = handlers[currentPage];
+    if (fn) await fn();
+  } catch (_) {
+    /* ignore transient errors during live refresh */
+  } finally {
+    _refreshing = false;
+  }
+}
 
 
 /* ---------- Broadcast ---------- */

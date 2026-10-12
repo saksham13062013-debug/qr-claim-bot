@@ -136,11 +136,12 @@ class ChannelCreateRequest(BaseModel):
     username: Optional[str] = None
     invite_url: Optional[str] = None
     is_required: bool = True
+    is_active: bool = True
 
 
 class ChannelUpdateRequest(BaseModel):
     title: Optional[str] = None
-    chat_id: Optional[str] = None
+    channel_id: Optional[int] = None
     username: Optional[str] = None
     invite_url: Optional[str] = None
     is_required: Optional[bool] = None
@@ -457,12 +458,19 @@ async def list_qrs(
                 "posted_at": q.posted_at.isoformat() if q.posted_at else None,
                 "claimed_at": q.claimed_at.isoformat() if q.claimed_at else None,
                 "expires_at": q.expires_at.isoformat() if q.expires_at else None,
+                "created_by_admin_id": q.created_by_admin_id,
+                "created_by_username": getattr(
+                    getattr(q, "created_by", None), "username", None
+                ),
                 "claimed_by_user_id": q.claimed_by_user_id,
                 "claimed_by_username": getattr(
                     getattr(q, "claimed_by", None), "username", None
                 ),
                 "claimed_by_first_name": getattr(
                     getattr(q, "claimed_by", None), "first_name", None
+                ),
+                "claimed_by_last_name": getattr(
+                    getattr(q, "claimed_by", None), "last_name", None
                 ),
                 "claimed_by_telegram_id": getattr(
                     getattr(q, "claimed_by", None), "telegram_id", None
@@ -903,16 +911,55 @@ async def create_channel(
     admin: Admin = Depends(require_perm("channels.edit")),
     session: AsyncSession = Depends(get_db),
 ):
-    ch = await force_join_service.create_channel(
-        session,
-        channel_id=body.channel_id,
-        title=body.title,
-        username=body.username,
-        invite_url=body.invite_url,
-        is_required=body.is_required,
-    )
+    try:
+        ch = await force_join_service.create_channel(
+            session,
+            channel_id=body.channel_id,
+            title=body.title,
+            username=body.username,
+            invite_url=body.invite_url,
+            is_required=body.is_required,
+            is_active=body.is_active,
+        )
+        await session.commit()
+        return {"ok": True, "id": ch.id}
+    except Exception as e:
+        raise HTTPException(400, f"Failed to add channel: {e}") from e
+
+
+@router.patch("/admin/channels/{channel_id}")
+async def update_channel(
+    channel_id: int,
+    body: ChannelUpdateRequest,
+    admin: Admin = Depends(require_perm("channels.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    channels = await force_join_service.list_channels(session)
+    ch = next((c for c in channels if c.id == channel_id), None)
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+    data = body.model_dump(exclude_none=True)
+    try:
+        await force_join_service.update_channel(session, ch, **data)
+        await session.commit()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(400, f"Failed to update channel: {e}") from e
+
+
+@router.delete("/admin/channels/{channel_id}")
+async def delete_channel(
+    channel_id: int,
+    admin: Admin = Depends(require_perm("channels.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    channels = await force_join_service.list_channels(session)
+    ch = next((c for c in channels if c.id == channel_id), None)
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+    await session.delete(ch)
     await session.commit()
-    return {"ok": True, "id": ch.id}
+    return {"ok": True}
 
 
 @router.get("/admin/settings")
@@ -1053,15 +1100,21 @@ async def broadcast(
 
     bot = get_bot()
     if not bot:
-        raise HTTPException(503, "Bot not ready")
+        raise HTTPException(503, "Bot is offline — wait a few seconds and retry")
     q = select(User)
     if body.only_active:
         q = q.where(User.status == UserStatus.ACTIVE)
     users = (await session.execute(q)).scalars().all()
+    if not users:
+        return {"ok": True, "sent": 0, "failed": 0, "total": 0, "message": "No users to send"}
     sent = failed = 0
     for u in users:
         try:
-            await bot.send_message(u.telegram_id, body.message, parse_mode="HTML")
+            await bot.send_message(
+                chat_id=u.telegram_id,
+                text=body.message,
+                parse_mode="HTML",
+            )
             sent += 1
         except Exception:
             failed += 1
@@ -1069,7 +1122,7 @@ async def broadcast(
         session,
         action=AuditAction.BROADCAST_SENT,
         actor_admin_id=admin.id,
-        metadata={"sent": sent, "failed": failed},
+        metadata={"sent": sent, "failed": failed, "total": len(users)},
     )
     return {"ok": True, "sent": sent, "failed": failed, "total": len(users)}
 
