@@ -249,32 +249,76 @@ async def _send_already_claimed(
     qr=None,
 ) -> None:
     """Already-claimed message with clickable claimer name + profile button."""
-    claimer_line = "another user"
-    claimer_kb = nav_kb()
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models import QRClaim, QRCode as QRModel, User
 
-    async def _resolve(sess, qr_obj):
-        nonlocal claimer_line, claimer_kb
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-        from app.models import QRCode as QRModel
+    claimer = None
+    code_u = code.upper().strip()
 
-        row = qr_obj
-        if row is None or getattr(row, "claimed_by", None) is None:
-            row = (
+    async def _load_claimer(sess) -> Optional[User]:
+        # 1) QR.claimed_by relationship
+        row = (
+            await sess.execute(
+                select(QRModel)
+                .options(selectinload(QRModel.claimed_by))
+                .where(QRModel.code == code_u)
+            )
+        ).scalar_one_or_none()
+        if row and row.claimed_by is not None:
+            return row.claimed_by
+        # 2) Direct user id on QR
+        if row and row.claimed_by_user_id:
+            u = (
                 await sess.execute(
-                    select(QRModel)
-                    .options(selectinload(QRModel.claimed_by))
-                    .where(QRModel.code == code.upper().strip())
+                    select(User).where(User.id == row.claimed_by_user_id)
                 )
             ).scalar_one_or_none()
-        claimer = getattr(row, "claimed_by", None) if row else None
-        if not claimer:
-            return
+            if u:
+                return u
+        # 3) Latest claim row for this QR
+        qr_id = row.id if row else None
+        if qr_id is None and qr is not None:
+            qr_id = getattr(qr, "id", None)
+        if qr_id is not None:
+            claim = (
+                await sess.execute(
+                    select(QRClaim)
+                    .options(selectinload(QRClaim.user))
+                    .where(QRClaim.qr_code_id == qr_id)
+                    .order_by(QRClaim.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if claim is not None:
+                if getattr(claim, "user", None) is not None:
+                    return claim.user
+                u = (
+                    await sess.execute(
+                        select(User).where(User.id == claim.user_id)
+                    )
+                ).scalar_one_or_none()
+                if u:
+                    return u
+        return None
 
+    try:
+        if session is not None:
+            claimer = await _load_claimer(session)
+        if claimer is None:
+            async with get_db_context() as sess:
+                claimer = await _load_claimer(sess)
+    except Exception:
+        logger.exception("Failed to resolve claimer for %s", code)
+        claimer = None
+
+    claimer_line = "another user"
+    buttons = []
+
+    if claimer is not None:
         first = (claimer.first_name or "").strip()
         last = (claimer.last_name or "").strip()
         uname = (claimer.username or "").strip()
-        # Prefer readable name; fall back to @username / ID
         display = " ".join(x for x in (first, last) if x).strip()
         if not display:
             display = f"@{uname}" if uname else f"User {claimer.telegram_id}"
@@ -283,13 +327,10 @@ async def _send_already_claimed(
             .replace("<", "&lt;")
             .replace(">", "&gt;")
         )
-
-        buttons = []
         if uname:
-            # https link → Telegram shows contact card + opens profile
             claimer_line = f'<a href="https://t.me/{uname}">{safe}</a>'
-            if uname and not display.startswith("@"):
-                claimer_line += f" (@{uname})"
+            if not display.startswith("@"):
+                claimer_line += f" (<a href=\"https://t.me/{uname}\">@{uname}</a>)"
             buttons.append(
                 [
                     InlineKeyboardButton(
@@ -299,52 +340,57 @@ async def _send_already_claimed(
                 ]
             )
         else:
-            # No public username — still link by user id (works inside Telegram)
+            # text_mention style link by telegram id
             claimer_line = (
                 f'<a href="tg://user?id={claimer.telegram_id}">{safe}</a>'
             )
 
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="Balance",
-                    callback_data="menu:balance",
-                    style="primary",
-                ),
-                InlineKeyboardButton(
-                    text="Help",
-                    callback_data="menu:help",
-                    style="primary",
-                ),
-            ]
-        )
-        claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-    try:
-        if session is not None:
-            await _resolve(session, qr)
-        else:
-            async with get_db_context() as sess:
-                await _resolve(sess, qr)
-    except Exception:
-        logger.exception("Failed to resolve claimer for %s", code)
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="Balance",
+                callback_data="menu:balance",
+                style="primary",
+            ),
+            InlineKeyboardButton(
+                text="Help",
+                callback_data="menu:help",
+                style="primary",
+            ),
+        ]
+    )
+    claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     text = (
         "<b>Already claimed</b>\n\n"
         f"This QR was claimed by {claimer_line}.\n"
         "Each QR can only be claimed once."
     )
-    if hasattr(target, "answer"):
-        await target.answer(
-            text, parse_mode=ParseMode.HTML, reply_markup=claimer_kb
+    try:
+        if hasattr(target, "answer"):
+            await target.answer(
+                text, parse_mode=ParseMode.HTML, reply_markup=claimer_kb
+            )
+        else:
+            await bot.send_message(
+                chat_id=target.chat.id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=claimer_kb,
+            )
+    except Exception:
+        # Fallback without HTML if Telegram rejects entities
+        plain = (
+            "Already claimed\n\n"
+            f"This QR was claimed by {getattr(claimer, 'username', None) and '@' + claimer.username or (claimer.first_name if claimer else 'another user')}.\n"
+            "Each QR can only be claimed once."
         )
-    else:
-        await bot.send_message(
-            chat_id=target.chat.id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=claimer_kb,
-        )
+        if hasattr(target, "answer"):
+            await target.answer(plain, reply_markup=claimer_kb)
+        else:
+            await bot.send_message(
+                chat_id=target.chat.id, text=plain, reply_markup=claimer_kb
+            )
 
 
 # ---------------------------------------------------------------------------
