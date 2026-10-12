@@ -114,11 +114,12 @@ PERMISSIONS = {
     "withdrawals.pay": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
     "withdrawals.reject": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
     "withdrawals.hold": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
-    # Channels
-    "channels.view": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
-    "channels.manage": {AdminRole.OWNER, AdminRole.SUPER_ADMIN},
+    # Channels (edit + manage are the same)
+    "channels.view": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.MODERATOR},
+    "channels.edit": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
+    "channels.manage": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
     # Settings
-    "settings.view": {AdminRole.OWNER, AdminRole.SUPER_ADMIN},
+    "settings.view": {AdminRole.OWNER, AdminRole.SUPER_ADMIN, AdminRole.MANAGER},
     "settings.edit": {AdminRole.OWNER, AdminRole.SUPER_ADMIN},
     # Audit
     "audit.view": {AdminRole.OWNER, AdminRole.SUPER_ADMIN},
@@ -141,11 +142,16 @@ def has_permission(
 ) -> bool:
     """Check if role has the given permission.
 
+    OWNER always has every permission.
     Managers can be granted extra flags via the permissions JSON column.
     """
+    # Owner bypass – full access always
+    if role == AdminRole.OWNER:
+        return True
     allowed = PERMISSIONS.get(permission)
     if not allowed:
-        return False
+        # Unknown permission: still allow SUPER_ADMIN
+        return role == AdminRole.SUPER_ADMIN
     if role in allowed:
         return True
     # Manager special: check extra permissions dict
