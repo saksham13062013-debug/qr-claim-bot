@@ -240,6 +240,111 @@ async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 1.0) -> None:
         pass
 
 
+async def _send_already_claimed(
+    target,
+    bot: Bot,
+    code: str,
+    *,
+    session=None,
+    qr=None,
+) -> None:
+    """Tell user this QR is taken and show clickable claimer profile."""
+    claimer_line = "another user"
+    claimer_kb = nav_kb()
+
+    async def _resolve(sess, qr_obj):
+        nonlocal claimer_line, claimer_kb
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.models import QRCode as QRModel
+
+        row = qr_obj
+        if row is None or getattr(row, "claimed_by", None) is None:
+            row = (
+                await sess.execute(
+                    select(QRModel)
+                    .options(selectinload(QRModel.claimed_by))
+                    .where(QRModel.code == code.upper().strip())
+                )
+            ).scalar_one_or_none()
+        claimer = getattr(row, "claimed_by", None) if row else None
+        if not claimer:
+            return
+        display = (
+            " ".join(
+                filter(None, [claimer.first_name or "", claimer.last_name or ""])
+            ).strip()
+            or (f"@{claimer.username}" if claimer.username else None)
+            or f"User {claimer.telegram_id}"
+        )
+        # HTML escape display for safety
+        safe = (
+            display.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        if claimer.username:
+            claimer_line = f'<a href="https://t.me/{claimer.username}">{safe}</a>'
+            profile_url = f"https://t.me/{claimer.username}"
+        else:
+            claimer_line = (
+                f'<a href="tg://user?id={claimer.telegram_id}">{safe}</a>'
+            )
+            # url buttons need https — tg:// may not work on all clients
+            profile_url = f"tg://user?id={claimer.telegram_id}"
+        buttons = []
+        if claimer.username:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="Open claimer profile",
+                        url=profile_url,
+                    )
+                ]
+            )
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="Balance",
+                    callback_data="menu:balance",
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="Help",
+                    callback_data="menu:help",
+                    style="primary",
+                ),
+            ]
+        )
+        claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    try:
+        if session is not None:
+            await _resolve(session, qr)
+        else:
+            async with get_db_context() as sess:
+                await _resolve(sess, qr)
+    except Exception:
+        logger.exception("Failed to resolve claimer for %s", code)
+
+    text = (
+        "<b>Already claimed</b>\n\n"
+        f"This QR was claimed by {claimer_line}.\n"
+        "Each QR can only be claimed once."
+    )
+    if hasattr(target, "answer"):
+        await target.answer(
+            text, parse_mode=ParseMode.HTML, reply_markup=claimer_kb
+        )
+    else:
+        await bot.send_message(
+            chat_id=target.chat.id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=claimer_kb,
+        )
+
+
 # ---------------------------------------------------------------------------
 # /start
 # ---------------------------------------------------------------------------
@@ -706,12 +811,7 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             await target.answer("Invalid or unknown QR code.")
             return
         if qr.status.value in ("CLAIMED", "PENDING", "APPROVED"):
-            await target.answer(
-                "<b>Already claimed</b>\n\n"
-                "This QR has already been claimed by another user.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=nav_kb(),
-            )
+            await _send_already_claimed(target, bot, code, session=session, qr=qr)
             return
         if qr.status.value in ("DISABLED", "EXPIRED", "REJECTED"):
             await target.answer(
@@ -899,12 +999,7 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
         except ValueError as e:
             err = str(e)
             if err == "QR_ALREADY_CLAIMED":
-                await callback.message.answer(
-                    "<b>Already claimed</b>\n\n"
-                    "This QR has already been claimed by another user.",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=nav_kb(),
-                )
+                await _send_already_claimed(callback.message, bot, code)
             elif err == "QR_NOT_FOUND":
                 await callback.message.answer("Invalid or unknown QR code.")
             elif err == "QR_EXPIRED":

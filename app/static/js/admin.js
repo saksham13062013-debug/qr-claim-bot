@@ -1162,35 +1162,57 @@ function pagination(total) {
 
     navigate("dashboard");
 
-    // Live auto-refresh every 1 second (tables). Dashboard every 5s.
+    // Pause auto-refresh while user is interacting (click / type / scroll)
+    let lastInteract = Date.now();
+    const markInteract = () => { lastInteract = Date.now(); };
+    document.addEventListener("click", markInteract, true);
+    document.addEventListener("keydown", markInteract, true);
+    document.addEventListener("scroll", markInteract, true);
+    document.addEventListener("touchstart", markInteract, true);
+
+    // Gentle live refresh every 15s — never while modal open or recent interaction
     setInterval(() => {
       const modal = document.getElementById("modal");
       if (modal && !modal.classList.contains("hidden")) return;
+      if (Date.now() - lastInteract < 8000) return; // 8s after last click/type
       if (!currentPage) return;
       softRefresh();
-    }, 1000);
+    }, 15000);
   } catch {
     window.location.href = "/";
   }
 })();
 
 let _refreshing = false;
-let _dashTick = 0;
 async function softRefresh() {
   if (_refreshing) return;
-  // Dashboard: refresh every 5s to avoid chart flicker
+  // Only soft-refresh list pages (not forms)
+  if (["broadcast", "settings", "reset", "admins"].includes(currentPage)) return;
+  // Dashboard: only update badge numbers, full re-render is disruptive
   if (currentPage === "dashboard") {
-    _dashTick++;
-    if (_dashTick % 5 !== 0) return;
-  } else {
-    _dashTick = 0;
+    try {
+      const data = await api("/admin/stats");
+      const s = data.stats || data;
+      const bc = document.getElementById("badgeClaims");
+      const bw = document.getElementById("badgeWd");
+      if (bc && s.pending_claims != null) {
+        if (s.pending_claims > 0) {
+          bc.textContent = s.pending_claims;
+          bc.classList.remove("hidden");
+        } else bc.classList.add("hidden");
+      }
+      if (bw && s.pending_withdrawals != null) {
+        if (s.pending_withdrawals > 0) {
+          bw.textContent = s.pending_withdrawals;
+          bw.classList.remove("hidden");
+        } else bw.classList.add("hidden");
+      }
+    } catch (_) {}
+    return;
   }
-  // Skip pages that are form-only (typing)
-  if (["broadcast", "settings", "reset"].includes(currentPage)) return;
   _refreshing = true;
   try {
     const handlers = {
-      dashboard: renderDashboard,
       users: () => renderUsers(document.getElementById("userSearch")?.value || ""),
       qrs: () => renderQRs(document.getElementById("qrFilter")?.value || ""),
       claims: () => renderClaims(
@@ -1200,13 +1222,12 @@ async function softRefresh() {
       channels: renderChannels,
       campaigns: renderCampaigns,
       tickets: renderTickets,
-      admins: renderAdmins,
       audit: renderAudit,
     };
     const fn = handlers[currentPage];
     if (fn) await fn();
   } catch (_) {
-    /* ignore transient errors during live refresh */
+    /* ignore */
   } finally {
     _refreshing = false;
   }
