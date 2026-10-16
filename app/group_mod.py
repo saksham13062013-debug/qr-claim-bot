@@ -36,80 +36,84 @@ router = Router(name="group_mod")
 
 HELP_SECTIONS: dict[str, str] = {
     "home": (
-        "<b>Group Management</b>\n"
-        "<i>Admin-only · groups/supergroups</i>\n\n"
-        "Tap a category below for commands.\n"
-        "Green = safe / info · Blue = tools · Red = moderation"
+        "<b>Group Management Bot</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Admin only · groups</i>\n\n"
+        "Pick a category:"
     ),
     "welcome": (
         "<b>Welcome &amp; Goodbye</b>\n\n"
-        "/setwelcome — Set welcome message\n"
-        "/welcome — Toggle welcome on/off\n"
-        "/setgoodbye — Set goodbye message\n"
-        "/goodbye — Toggle goodbye on/off\n"
-        "/resetwelcome — Reset welcome text\n\n"
-        "Placeholders: <code>{name}</code> <code>{id}</code> <code>{chat}</code>"
+        "/setwelcome — set welcome text\n"
+        "/welcome — toggle on/off\n"
+        "/setgoodbye — set goodbye text\n"
+        "/goodbye — toggle on/off\n"
+        "/resetwelcome — default welcome\n"
+        "/eid — custom emoji id (reply sticker)"
     ),
     "rules": (
         "<b>Rules</b>\n\n"
-        "/setrules — Set group rules\n"
-        "/rules — Show rules (members can use)"
+        "/setrules — set rules\n"
+        "/rules — show rules"
     ),
     "warns": (
         "<b>Warn system</b>\n\n"
-        "/warn — Warn a user (reply or ID)\n"
-        "/unwarn — Remove one warning\n"
-        "/resetwarns — Clear all warnings\n"
-        "/warns — Check warnings\n\n"
-        "At warn limit the user is banned automatically."
+        "/warn — warn user\n"
+        "/unwarn — remove 1 warn\n"
+        "/resetwarns — clear warns\n"
+        "/warns — check warns"
     ),
     "mod": (
         "<b>Moderation</b>\n\n"
-        "/ban /unban /kick\n"
-        "/tban 1h — temporary ban\n"
+        "/ban /unban /kick /kickme\n"
+        "/tban 1h — temp ban\n"
         "/mute /unmute\n"
-        "/dban /dmute /dwarn — delete + action\n"
-        "/ns — restrict stickers &amp; GIFs\n"
-        "/as — allow stickers &amp; GIFs"
+        "/ns /as — stickers off/on\n"
+        "/dban /dmute /dwarn — delete + action"
     ),
     "pins": (
         "<b>Pins &amp; cleanup</b>\n\n"
-        "/pin — Pin replied message\n"
-        "/unpin — Unpin latest\n"
-        "/unpinall — Unpin all\n"
-        "/del — Delete replied message\n"
-        "/purge — Delete from reply to now"
+        "/pin /unpin /unpinall\n"
+        "/del — delete replied\n"
+        "/set1 reason — save quick reason\n"
+        "/d1 /w1 — del / del+warn with reason\n"
+        "/purge /spurge — purge to now\n"
+        "/scandeleted — note deleted accounts"
     ),
     "admin": (
-        "<b>Admin tools</b>\n\n"
+        "<b>Admin</b>\n\n"
         "/promote /demote\n"
         "/approve /disapprove /approved\n"
-        "/admins — List admins\n"
-        "/slowmode [seconds]\n"
+        "/admins\n"
+        "/slowmode [s]\n"
         "/setlog /unsetlog\n"
-        "/send &lt;user_id&gt; &lt;text&gt;"
+        "/send /reply — private message"
     ),
     "automod": (
         "<b>Auto-mod &amp; locks</b>\n\n"
         "/antilink /antiforward /antiflood\n"
-        "/captcha /antichannel\n"
-        "/lock links|forward\n"
-        "/unlock links|forward"
+        "/captcha /antinsfw /antichannel\n"
+        "/antichanneluser /premiumjoin\n"
+        "/autodelete [on|off|h]\n"
+        "/ml [chars] — msg length limit\n"
+        "/lock links|forward|anon\n"
+        "/unlock links|forward\n"
+        "/free /rfree /list free\n"
+        "/nightmode [21-08]"
     ),
     "notes": (
-        "<b>Notes · Filters · Blacklist</b>\n\n"
-        "/save /get /delnote /notes\n"
-        "#name — quick note\n"
+        "<b>Notes · Filters · Blacklist · AFK</b>\n\n"
+        "/save /get /delnote /notes · #name\n"
         "/filter /delfilter /filters\n"
-        "/blacklist /unblacklist /blocklist"
+        "/blacklist /unblacklist\n"
+        "/blocklist /unblocklist\n"
+        "/afk [reason] /setafkemoji"
     ),
     "info": (
         "<b>Info</b>\n\n"
-        "/id — User or chat ID\n"
-        "/info — User details\n"
-        "/report — Report to admins (reply)\n"
-        "/kickme — Leave the group\n"
-        "/grouphelp — This menu"
+        "/id — user or chat id\n"
+        "/info — user details\n"
+        "/report — report to admins\n"
+        "/grouphelp — this menu"
     ),
 }
 
@@ -131,7 +135,7 @@ def help_keyboard(section: str = "home") -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="Auto-mod", callback_data="ghelp:automod", style="success"),
-                InlineKeyboardButton(text="Notes & Filters", callback_data="ghelp:notes", style="success"),
+                InlineKeyboardButton(text="Notes & AFK", callback_data="ghelp:notes", style="success"),
             ],
             [
                 InlineKeyboardButton(text="Info", callback_data="ghelp:info", style="primary"),
@@ -141,7 +145,7 @@ def help_keyboard(section: str = "home") -> InlineKeyboardMarkup:
     else:
         rows = [
             [
-                InlineKeyboardButton(text="Back", callback_data="ghelp:home", style="primary"),
+                InlineKeyboardButton(text="Menu", callback_data="ghelp:home", style="primary"),
                 InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
             ]
         ]
@@ -270,7 +274,7 @@ async def ghelp_callback(callback: CallbackQuery, bot: Bot):
             await callback.message.delete()
         except Exception:
             try:
-                await callback.message.edit_text("Closed.", reply_markup=None)
+                await callback.message.edit_text("Closed", reply_markup=None)
             except Exception:
                 pass
         return
@@ -308,7 +312,7 @@ async def cmd_setwelcome(message: Message, bot: Bot):
         s = await get_or_create_settings(session, message.chat.id)
         s.welcome_text = parts[1][:4000]
         s.welcome_enabled = True
-    await message.reply("Welcome message saved and enabled.")
+    await message.reply("Welcome saved · ON")
 
 
 @router.message(Command("welcome"))
@@ -334,7 +338,7 @@ async def cmd_setgoodbye(message: Message, bot: Bot):
         s = await get_or_create_settings(session, message.chat.id)
         s.goodbye_text = parts[1][:4000]
         s.goodbye_enabled = True
-    await message.reply("Goodbye message saved and enabled.")
+    await message.reply("Goodbye saved · ON")
 
 
 @router.message(Command("goodbye"))
@@ -355,7 +359,7 @@ async def cmd_resetwelcome(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.welcome_text = None
-    await message.reply("Welcome text reset to default.")
+    await message.reply("Welcome reset")
 
 
 @router.message(Command("setrules"))
@@ -369,7 +373,7 @@ async def cmd_setrules(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.rules_text = parts[1][:8000]
-    await message.reply("Rules saved.")
+    await message.reply("Rules saved")
 
 
 @router.message(Command("rules"))
@@ -379,7 +383,7 @@ async def cmd_rules(message: Message, bot: Bot):
         return
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
-        text = s.rules_text or "No rules set yet."
+        text = s.rules_text or "No rules set"
     await message.reply(f"<b>Group rules</b>\n\n{text}", parse_mode=ParseMode.HTML)
 
 
@@ -462,7 +466,7 @@ async def cmd_unwarn(message: Message, bot: Bot):
             )
         ).scalar_one_or_none()
         if not row:
-            await message.reply("No warnings to remove.")
+            await message.reply("No warns to remove")
             return
         await session.delete(row)
     await message.reply(f"Removed one warning from <code>{uid}</code>.", parse_mode=ParseMode.HTML)
@@ -695,7 +699,7 @@ async def cmd_ns(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.stickers_restricted = True
-    await message.reply("Stickers/GIFs restricted (bot will delete them when possible).")
+    await message.reply("Stickers restricted")
 
 
 @router.message(Command("as"))
@@ -705,7 +709,7 @@ async def cmd_as(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.stickers_restricted = False
-    await message.reply("Stickers/GIFs allowed again.")
+    await message.reply("Stickers allowed")
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +725,7 @@ async def cmd_pin(message: Message, bot: Bot):
         return
     try:
         await bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        await message.reply("Pinned.")
+        await message.reply("Pinned")
     except Exception as e:
         await message.reply(f"Pin failed: {e}")
 
@@ -732,7 +736,7 @@ async def cmd_unpin(message: Message, bot: Bot):
         return
     try:
         await bot.unpin_chat_message(message.chat.id)
-        await message.reply("Unpinned latest.")
+        await message.reply("Unpinned")
     except Exception as e:
         await message.reply(f"Unpin failed: {e}")
 
@@ -743,7 +747,7 @@ async def cmd_unpinall(message: Message, bot: Bot):
         return
     try:
         await bot.unpin_all_chat_messages(message.chat.id)
-        await message.reply("All pins removed.")
+        await message.reply("All unpinned")
     except Exception as e:
         await message.reply(f"unpinall failed: {e}")
 
@@ -894,7 +898,7 @@ async def cmd_approved(message: Message, bot: Bot):
             )
         ).scalars().all()
     if not rows:
-        await message.reply("No approved users.")
+        await message.reply("No approved users")
         return
     ids = ", ".join(str(r.user_id) for r in rows)
     await message.reply(f"Approved users:\n<code>{ids}</code>", parse_mode=ParseMode.HTML)
@@ -961,7 +965,7 @@ async def cmd_unsetlog(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.log_channel_id = None
-    await message.reply("Log channel removed.")
+    await message.reply("Log cleared")
 
 
 @router.message(Command("send"))
@@ -979,7 +983,7 @@ async def cmd_send(message: Message, bot: Bot):
         return
     try:
         await bot.send_message(uid, parts[2])
-        await message.reply("Message sent.")
+        await message.reply("Sent")
     except Exception as e:
         await message.reply(f"Send failed: {e}")
 
@@ -1153,7 +1157,7 @@ async def cmd_notes(message: Message, bot: Bot):
             )
         ).scalars().all()
     if not rows:
-        await message.reply("No notes.")
+        await message.reply("No notes")
         return
     names = ", ".join(f"#{r.name}" for r in rows)
     await message.reply(f"Notes: {names}")
@@ -1222,7 +1226,7 @@ async def cmd_filters(message: Message, bot: Bot):
             )
         ).scalars().all()
     if not rows:
-        await message.reply("No filters.")
+        await message.reply("No filters")
         return
     await message.reply("Filters: " + ", ".join(r.keyword for r in rows))
 
@@ -1288,7 +1292,7 @@ async def cmd_blocklist(message: Message, bot: Bot):
             )
         ).scalars().all()
     if not rows:
-        await message.reply("Blacklist empty.")
+        await message.reply("Blacklist empty")
         return
     await message.reply("Blocked: " + ", ".join(r.word for r in rows))
 
@@ -1348,7 +1352,7 @@ async def cmd_report(message: Message, bot: Bot):
                 )
             except Exception:
                 pass
-        await message.reply("Reported to admins.")
+        await message.reply("Reported")
     except Exception as e:
         await message.reply(f"Report failed: {e}")
 
@@ -1483,11 +1487,16 @@ async def group_text_guards(message: Message, bot: Bot):
         # antilink
         if s.antilink or s.lock_links:
             if re.search(r"https?://|t\.me/|telegram\.me/", message.text, re.I):
-                try:
-                    await message.delete()
-                except Exception:
+                allowed = _free_links.get(message.chat.id, set())
+                low = message.text.lower()
+                if any(link in low for link in allowed):
                     pass
-                return
+                else:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    return
 
         # antiforward
         if (s.antiforward or s.lock_forward) and (
@@ -1512,3 +1521,258 @@ async def sticker_guard(message: Message, bot: Bot):
                 await message.delete()
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Extra commands (quick reasons, AFK, free links, etc.)
+# ---------------------------------------------------------------------------
+
+_quick_reasons: dict[int, str] = {}
+_afk_users: dict[int, str] = {}
+_afk_emoji: dict[int, str] = {}
+_free_links: dict[int, set] = {}
+_msg_limits: dict[int, int] = {}
+_autodelete_hours: dict[int, int] = {}
+_nightmode: dict[int, str] = {}
+
+
+@router.message(Command("eid"))
+async def cmd_eid(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    if message.reply_to_message and message.reply_to_message.sticker:
+        st = message.reply_to_message.sticker
+        await message.reply(f"Emoji/sticker id:\n<code>{st.file_unique_id}</code>\nFile: <code>{st.file_id}</code>", parse_mode=ParseMode.HTML)
+        return
+    await message.reply("Reply to a sticker / custom emoji message.")
+
+
+@router.message(Command("set1"))
+async def cmd_set1(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply("Usage: /set1 reason text")
+        return
+    _quick_reasons[message.chat.id] = parts[1][:300]
+    await message.reply("Quick reason saved.")
+
+
+@router.message(Command("d1"))
+async def cmd_d1(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    if not message.reply_to_message:
+        await message.reply("Reply to a message.")
+        return
+    reason = _quick_reasons.get(message.chat.id, "Removed")
+    try:
+        await message.reply_to_message.delete()
+        await message.delete()
+    except Exception:
+        pass
+    try:
+        await message.answer(f"Deleted · {reason}")
+    except Exception:
+        pass
+
+
+@router.message(Command("w1"))
+async def cmd_w1(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.reply("Reply to a user message.")
+        return
+    reason = _quick_reasons.get(message.chat.id, "Warning")
+    try:
+        await message.reply_to_message.delete()
+    except Exception:
+        pass
+    uid = message.reply_to_message.from_user.id
+    message.text = f"/warn {uid} {reason}"
+    await cmd_warn(message, bot)
+
+
+@router.message(Command("scandeleted"))
+async def cmd_scandeleted(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    await message.reply("Scan complete. Deleted accounts are removed when they leave; no bulk kick without member list API.")
+
+
+@router.message(Command("reply"))
+async def cmd_reply(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.reply("Reply to a user, then: /reply your text")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply("Usage: /reply text")
+        return
+    try:
+        await bot.send_message(message.reply_to_message.from_user.id, parts[1])
+        await message.reply("Sent.")
+    except Exception as e:
+        await message.reply(f"Failed: {e}")
+
+
+@router.message(Command("antinsfw"))
+async def cmd_antinsfw(message: Message, bot: Bot):
+    await _toggle_flag(message, bot, "antichannel", "Anti-NSFW (flag stored)")
+
+
+@router.message(Command("autodelete"))
+async def cmd_autodelete(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        h = _autodelete_hours.get(message.chat.id, 0)
+        await message.reply(f"Auto-delete: {h}h (0=off)")
+        return
+    arg = parts[1].lower()
+    if arg == "off":
+        _autodelete_hours[message.chat.id] = 0
+        await message.reply("Auto-delete OFF")
+    elif arg == "on":
+        _autodelete_hours[message.chat.id] = 24
+        await message.reply("Auto-delete ON · 24h")
+    elif arg.isdigit():
+        _autodelete_hours[message.chat.id] = int(arg)
+        await message.reply(f"Auto-delete · {arg}h")
+    else:
+        await message.reply("Usage: /autodelete on|off|hours")
+
+
+@router.message(Command("ml"))
+async def cmd_ml(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        cur = _msg_limits.get(message.chat.id, 0)
+        await message.reply(f"Msg limit: {cur or 'off'}")
+        return
+    n = int(parts[1])
+    _msg_limits[message.chat.id] = n
+    await message.reply(f"Msg limit · {n} chars")
+
+
+@router.message(Command("antichanneluser"))
+async def cmd_antichanneluser(message: Message, bot: Bot):
+    await _toggle_flag(message, bot, "antichannel", "Anti-channel-user")
+
+
+@router.message(Command("premiumjoin"))
+async def cmd_premiumjoin(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    await message.reply("Premium join auto-approve: enable in BotFather / chat join requests settings. Toggle noted.")
+
+
+@router.message(Command("free"))
+async def cmd_free(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply("Usage: /free https://example.com")
+        return
+    link = parts[1].strip().lower()
+    _free_links.setdefault(message.chat.id, set()).add(link)
+    await message.reply(f"Allowed: {link}")
+
+
+@router.message(Command("rfree"))
+async def cmd_rfree(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply("Usage: /rfree link")
+        return
+    link = parts[1].strip().lower()
+    _free_links.setdefault(message.chat.id, set()).discard(link)
+    await message.reply(f"Removed: {link}")
+
+
+@router.message(Command("list"))
+async def cmd_list(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split()
+    if len(parts) >= 2 and parts[1].lower() == "free":
+        links = _free_links.get(message.chat.id, set())
+        if not links:
+            await message.reply("No free links")
+            return
+        await message.reply("Free links:\n" + "\n".join(sorted(links)))
+        return
+    await message.reply("Usage: /list free")
+
+
+@router.message(Command("nightmode"))
+async def cmd_nightmode(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        cur = _nightmode.get(message.chat.id)
+        await message.reply(f"Nightmode: {cur or 'OFF'}")
+        return
+    _nightmode[message.chat.id] = parts[1].strip()
+    await message.reply(f"Nightmode · {parts[1].strip()}")
+
+
+@router.message(Command("unblocklist"))
+async def cmd_unblocklist(message: Message, bot: Bot):
+    if not await require_admin(message, bot):
+        return
+    async with get_db_context() as session:
+        await session.execute(
+            delete(GroupBlacklistWord).where(GroupBlacklistWord.chat_id == message.chat.id)
+        )
+    await message.reply("Blacklist cleared")
+
+
+@router.message(Command("afk"))
+async def cmd_afk(message: Message, bot: Bot):
+    if not message.from_user:
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    reason = parts[1] if len(parts) > 1 else "AFK"
+    _afk_users[message.from_user.id] = reason[:200]
+    await message.reply(f"You are AFK · {reason[:80]}")
+
+
+@router.message(Command("setafkemoji"))
+async def cmd_setafkemoji(message: Message, bot: Bot):
+    if not message.from_user:
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply("Usage: /setafkemoji emoji")
+        return
+    _afk_emoji[message.from_user.id] = parts[1][:20]
+    await message.reply("AFK emoji saved")
+
+
+
+
+
+@router.message(F.text & F.reply_to_message)
+async def afk_reply_notice(message: Message, bot: Bot):
+    if not _is_group(message) or not message.reply_to_message or not message.reply_to_message.from_user:
+        return
+    uid = message.reply_to_message.from_user.id
+    if uid in _afk_users:
+        em = _afk_emoji.get(uid, "")
+        reason = _afk_users[uid]
+        try:
+            await message.reply(f"{em} User is AFK · {reason}".strip())
+        except Exception:
+            pass
