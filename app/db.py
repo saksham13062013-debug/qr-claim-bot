@@ -86,6 +86,9 @@ async def init_db() -> None:
         await conn.execute(text(
             "ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_details VARCHAR(255)"
         ))
+        await conn.execute(text(
+            "ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS app_name VARCHAR(128)"
+        ))
     logger.info("Database tables initialized")
 
 

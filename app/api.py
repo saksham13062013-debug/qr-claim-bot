@@ -114,6 +114,7 @@ class QRCreateRequest(BaseModel):
     expiry_minutes: Optional[int] = Field(None, ge=1, le=525600)
     expiry_hours: Optional[int] = Field(None, ge=1)  # legacy alias
     campaign_name: Optional[str] = None
+    app_name: Optional[str] = Field(None, max_length=128)
     description: Optional[str] = None
 
 
@@ -454,6 +455,7 @@ async def list_qrs(
                 "reward_cents": q.reward_cents,
                 "status": q.status.value,
                 "campaign_name": q.campaign_name,
+                "app_name": getattr(q, "app_name", None),
                 "description": q.description,
                 "created_at": q.created_at.isoformat() if q.created_at else None,
                 "posted_at": q.posted_at.isoformat() if q.posted_at else None,
@@ -503,6 +505,7 @@ async def create_qrs(
         campaign_name=body.campaign_name,
         description=body.description,
         admin_id=admin.id,
+        app_name=body.app_name,
     )
     await session.commit()
     return {
@@ -549,13 +552,20 @@ async def post_qr(
                 select(User).where(User.status == UserStatus.ACTIVE)
             )
         ).scalars().all()
+        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
+        exp_line = ""
+        if qr.expires_at:
+            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
         msg = (
-            f"<b>NEW QR REWARD</b>\n\n"
-            f"Reward: ${qr.reward_cents / 100:.2f}\n"
-            f"One user only!\n\n"
-            f"Tap <b>CLAIM REWARD</b> below. You will get the QR image in this chat."
+            f"<b>New reward available</b>\n\n"
+            f"{app_line}"
+            f"Reward: <b>${qr.reward_cents / 100:.2f}</b>\n"
+            f"{exp_line}"
+            f"Limit: <b>1 user only</b>\n\n"
+            f"Tap <b>CLAIM REWARD</b> below.\n"
+            f"You will receive the QR image in this private chat.\n"
+            f"Scan it in the correct app, then submit your claim."
         )
-        msg = msg.replace("\n", "\n")
         for u in users:
             try:
                 await bot.send_message(
@@ -1461,11 +1471,19 @@ async def notify_one_user(
     try:
         if qr.status in (QRStatus.AVAILABLE, QRStatus.RECLAIMED):
             await qr_service.mark_qr_posted(session, qr, admin.id)
+        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
+        exp_line = ""
+        if qr.expires_at:
+            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
         msg = (
-            f"<b>NEW QR REWARD</b>\n\n"
-            f"Reward: ${qr.reward_cents / 100:.2f}\n"
-            f"One user only!\n\n"
-            f"Tap <b>CLAIM REWARD</b> below. You will get the QR image in this chat."
+            f"<b>New reward available</b>\n\n"
+            f"{app_line}"
+            f"Reward: <b>${qr.reward_cents / 100:.2f}</b>\n"
+            f"{exp_line}"
+            f"Limit: <b>1 user only</b>\n\n"
+            f"Tap <b>CLAIM REWARD</b> below.\n"
+            f"You will receive the QR image in this private chat.\n"
+            f"Scan it in the correct app, then submit your claim."
         )
         await bot.send_message(
             chat_id=body.telegram_id,

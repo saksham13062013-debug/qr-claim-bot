@@ -380,8 +380,9 @@ async def _send_already_claimed(
 
     text = (
         "<b>Already claimed</b>\n\n"
-        f"This QR was claimed by {claimer_line}.\n"
-        "Each QR can only be claimed once."
+        f"This reward was claimed by {claimer_line}.\n"
+        "Each QR can be claimed by only one user.\n\n"
+        "Watch this chat for the next available reward."
     )
     try:
         if hasattr(target, "answer"):
@@ -895,12 +896,20 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             return
 
         reward = cents_to_usd(qr.reward_cents)
+        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
+        exp_line = ""
+        if qr.expires_at:
+            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
         caption = (
-            f"<b>Your QR reward</b>\n\n"
+            f"<b>QR ready to scan</b>\n\n"
+            f"{app_line}"
             f"Code: <code>{qr.code}</code>\n"
             f"Reward: <b>{reward}</b>\n"
-            f"Status: {qr.status.value}\n\n"
-            f"Tap <b>Submit Claim</b> to send this for admin approval."
+            f"{exp_line}\n"
+            f"1. Open the app shown above\n"
+            f"2. Scan this QR\n"
+            f"3. Tap <b>Submit Claim</b> when done\n\n"
+            f"Only one successful claim is allowed for this QR."
         )
         if qr.image_png:
             png = qr.image_png
@@ -1031,21 +1040,26 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
             if auto:
                 claim = auto
 
+            app_bit = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
             if claim.status.value == "APPROVED":
                 text = (
                     f"<b>Claim approved</b>\n\n"
+                    f"{app_bit}"
                     f"QR: <code>{qr.code}</code>\n"
                     f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
-                    f"Status: Approved\n\n"
-                    f"The reward has been credited to your wallet."
+                    f"Status: <b>Approved</b>\n\n"
+                    f"The amount has been credited to your wallet.\n"
+                    f"You can withdraw anytime from the menu."
                 )
             else:
                 text = (
                     f"<b>Claim submitted</b>\n\n"
+                    f"{app_bit}"
                     f"QR: <code>{qr.code}</code>\n"
                     f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
-                    f"Status: Pending approval\n\n"
-                    f"You will be notified when an admin reviews this claim."
+                    f"Status: <b>Pending review</b>\n\n"
+                    f"An admin will review your claim shortly.\n"
+                    f"You will get a message here when it is approved or rejected."
                 )
             try:
                 await callback.message.edit_caption(
@@ -1145,6 +1159,13 @@ async def start_bot() -> None:
     _bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     _dp = Dispatcher(storage=MemoryStorage())
     _dp.include_router(router)
+    try:
+        from app.group_mod import router as group_router
+
+        _dp.include_router(group_router)
+        logger.info("Group moderation router loaded")
+    except Exception:
+        logger.exception("Failed to load group moderation router")
     set_bot(_bot)
 
     me = await _bot.get_me()

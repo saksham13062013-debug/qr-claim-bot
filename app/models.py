@@ -218,6 +218,7 @@ class QRCode(Base):
         index=True,
     )
     campaign_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    app_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by_admin_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("admins.id", ondelete="SET NULL"), nullable=True
@@ -528,3 +529,110 @@ class SupportTicket(Base):
     )
 
     user: Mapped["User"] = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Group moderation (admin-only tools)
+# ---------------------------------------------------------------------------
+
+
+class GroupChatSettings(Base):
+    __tablename__ = "group_chat_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    welcome_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    goodbye_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    goodbye_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rules_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    antilink: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    antiforward: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    antiflood: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    captcha: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    antichannel: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    lock_links: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    lock_forward: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    stickers_restricted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    slowmode_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    log_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    warn_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class GroupWarn(Base):
+    __tablename__ = "group_warns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    admin_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    __table_args__ = (Index("ix_group_warns_chat_user", "chat_id", "user_id"),)
+
+
+class GroupNote(Base):
+    __tablename__ = "group_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("chat_id", "name", name="uq_group_note_chat_name"),)
+
+
+class GroupFilter(Base):
+    __tablename__ = "group_filters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    keyword: Mapped[str] = mapped_column(String(128), nullable=False)
+    reply: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("chat_id", "keyword", name="uq_group_filter_chat_kw"),)
+
+
+class GroupBlacklistWord(Base):
+    __tablename__ = "group_blacklist_words"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    word: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("chat_id", "word", name="uq_group_bl_chat_word"),)
+
+
+class GroupApprovedUser(Base):
+    __tablename__ = "group_approved_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    approved_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("chat_id", "user_id", name="uq_group_approved"),)

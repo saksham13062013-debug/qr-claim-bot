@@ -591,6 +591,7 @@ async function renderQRs(status = "") {
       <td><code class="copyable" onclick="copyText('${escapeHtml(q.code)}')" title="Click to copy">${escapeHtml(q.code)}</code> <button class="btn btn-sm btn-outline" onclick="window.open('/api/admin/qrs/${q.id}/image','_blank')" title="Download QR image">🖼</button></td>
       <td><strong>${cents(q.reward_cents)}</strong></td>
       <td>${badge(q.status)}</td>
+      <td>${escapeHtml(q.app_name || "—")}</td>
       <td>${escapeHtml(q.campaign_name || "—")}</td>
       <td>${escapeHtml(q.created_by_username || "—")}</td>
       <td>${fmtDate(q.created_at)}</td>
@@ -626,10 +627,10 @@ async function renderQRs(status = "") {
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
-        <th>Code</th><th>Reward</th><th>Status</th><th>Campaign</th>
+        <th>Code</th><th>Reward</th><th>Status</th><th>App</th><th>Campaign</th>
         <th>Created By</th><th>Created</th><th>Expires</th><th>Claimed By</th><th>Actions</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="9">${emptyState("QR", "No QR codes yet")}</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="10">${emptyState("QR", "No QR codes yet")}</td></tr>`}</tbody>
     </table></div>
     ${pagination(data.total)}
   `;
@@ -642,11 +643,14 @@ function showCreateQR() {
       <div class="form-group"><label>Quantity *</label><input type="number" id="qrQty" min="1" max="500" value="1" required /></div>
     </div>
     <div class="form-row">
+      <div class="form-group"><label>App name *</label><input type="text" id="qrApp" placeholder="e.g. PhonePe, GPay, Paytm, Binance" required /></div>
       <div class="form-group"><label>Expiry (minutes)</label><input type="number" id="qrExpiryMin" min="1" placeholder="e.g. 60, 1440 (optional)" /></div>
-      <div class="form-group"><label>Campaign name</label><input type="text" id="qrCampaign" placeholder="Optional" /></div>
     </div>
-    <div class="form-group"><label>Description</label><textarea id="qrDesc" placeholder="Optional notes"></textarea></div>
-    <p class="muted" style="font-size:0.85rem">QR codes expire automatically after the minutes you set. Leave blank for no expiry.</p>
+    <div class="form-row">
+      <div class="form-group"><label>Campaign name</label><input type="text" id="qrCampaign" placeholder="Optional" /></div>
+      <div class="form-group"><label>Description</label><input type="text" id="qrDesc" placeholder="Optional notes" /></div>
+    </div>
+    <p class="muted" style="font-size:0.85rem">App name is shown to users when you post/notify the QR (e.g. which app to scan in).</p>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="doCreateQR()">Create</button>
@@ -656,13 +660,16 @@ function showCreateQR() {
 async function doCreateQR() {
   const reward = parseFloat(document.getElementById("qrReward").value);
   const qty = parseInt(document.getElementById("qrQty").value, 10);
+  const appName = (document.getElementById("qrApp").value || "").trim();
   if (!reward || reward <= 0) { toast("Enter a valid reward amount", "error"); return; }
   if (!qty || qty < 1) { toast("Enter quantity", "error"); return; }
+  if (!appName) { toast("Enter the app name for this QR", "error"); return; }
   const body = {
     reward_usd: reward,
     quantity: qty,
     expiry_minutes: parseInt(document.getElementById("qrExpiryMin").value, 10) || null,
     campaign_name: document.getElementById("qrCampaign").value || null,
+    app_name: appName,
     description: document.getElementById("qrDesc").value || null,
   };
   try {

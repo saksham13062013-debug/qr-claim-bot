@@ -34,12 +34,15 @@ async def create_qr_codes(
     campaign_name: Optional[str],
     description: Optional[str],
     admin_id: int,
+    app_name: Optional[str] = None,
 ) -> list[QRCode]:
     """Create one or more cryptographically secure QR codes."""
     if reward_cents <= 0:
         raise ValueError("Reward must be positive")
     if quantity < 1 or quantity > 500:
         raise ValueError("Quantity must be between 1 and 500")
+
+    app_clean = (app_name or "").strip()[:128] or None
 
     codes: list[QRCode] = []
     for _ in range(quantity):
@@ -59,6 +62,7 @@ async def create_qr_codes(
             reward_cents=reward_cents,
             status=QRStatus.AVAILABLE,
             campaign_name=campaign_name,
+            app_name=app_clean,
             description=description,
             created_by_admin_id=admin_id,
             expires_at=expires_at,
