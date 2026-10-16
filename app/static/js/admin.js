@@ -643,14 +643,14 @@ function showCreateQR() {
       <div class="form-group"><label>Quantity *</label><input type="number" id="qrQty" min="1" max="500" value="1" required /></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>App name *</label><input type="text" id="qrApp" placeholder="e.g. PhonePe, GPay, Paytm, Binance" required /></div>
+      <div class="form-group"><label>QR app name *</label><input type="text" id="qrApp" placeholder="Which app this QR belongs to (e.g. PhonePe)" required /></div>
       <div class="form-group"><label>Expiry (minutes)</label><input type="number" id="qrExpiryMin" min="1" placeholder="e.g. 60, 1440 (optional)" /></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Campaign name</label><input type="text" id="qrCampaign" placeholder="Optional" /></div>
       <div class="form-group"><label>Description</label><input type="text" id="qrDesc" placeholder="Optional notes" /></div>
     </div>
-    <p class="muted" style="font-size:0.85rem">App name is shown to users when you post/notify the QR (e.g. which app to scan in).</p>
+    <p class="muted" style="font-size:0.85rem">QR app name = which app this QR belongs to. Shown to users as a label only (not scan instructions).</p>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="doCreateQR()">Create</button>

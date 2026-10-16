@@ -552,19 +552,16 @@ async def post_qr(
                 select(User).where(User.status == UserStatus.ACTIVE)
             )
         ).scalars().all()
-        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
-        exp_line = ""
+        app_label = (qr.app_name or "QR task").strip()
+        exp_line = "No expiry"
         if qr.expires_at:
-            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
+            exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
+        reward_str = f"{qr.reward_cents / 100:.2f}"
         msg = (
-            f"<b>New reward available</b>\n\n"
-            f"{app_line}"
-            f"Reward: <b>${qr.reward_cents / 100:.2f}</b>\n"
-            f"{exp_line}"
-            f"Limit: <b>1 user only</b>\n\n"
-            f"Tap <b>CLAIM REWARD</b> below.\n"
-            f"You will receive the QR image in this private chat.\n"
-            f"Scan it in the correct app, then submit your claim."
+            f"<b>New task #{qr.id} · {app_label}</b>\n"
+            f"Your reward: <b>${reward_str}</b>\n"
+            f"Expires: {exp_line}\n"
+            f"Claim before opening the payment link."
         )
         for u in users:
             try:
@@ -1471,19 +1468,16 @@ async def notify_one_user(
     try:
         if qr.status in (QRStatus.AVAILABLE, QRStatus.RECLAIMED):
             await qr_service.mark_qr_posted(session, qr, admin.id)
-        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
-        exp_line = ""
+        app_label = (qr.app_name or "QR task").strip()
+        exp_line = "No expiry"
         if qr.expires_at:
-            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
+            exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
+        reward_str = f"{qr.reward_cents / 100:.2f}"
         msg = (
-            f"<b>New reward available</b>\n\n"
-            f"{app_line}"
-            f"Reward: <b>${qr.reward_cents / 100:.2f}</b>\n"
-            f"{exp_line}"
-            f"Limit: <b>1 user only</b>\n\n"
-            f"Tap <b>CLAIM REWARD</b> below.\n"
-            f"You will receive the QR image in this private chat.\n"
-            f"Scan it in the correct app, then submit your claim."
+            f"<b>New task #{qr.id} · {app_label}</b>\n"
+            f"Your reward: <b>${reward_str}</b>\n"
+            f"Expires: {exp_line}\n"
+            f"Claim before opening the payment link."
         )
         await bot.send_message(
             chat_id=body.telegram_id,

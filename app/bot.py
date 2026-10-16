@@ -130,7 +130,7 @@ def claim_button(code: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="CLAIM REWARD",
+                    text="CLAIM QR",
                     callback_data=f"claim:{code}",
                     style="success",
                 )
@@ -464,7 +464,7 @@ async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
     text = (
         "<b>How to claim a reward</b>\n\n"
         "1. When a reward is live, you get a <b>private message</b> from this bot.\n"
-        "2. Tap <b>CLAIM REWARD</b> (green).\n"
+        "2. Tap <b>CLAIM QR</b> (green).\n"
         "3. Join any required channels if asked.\n"
         "4. Review the QR image, then tap <b>Submit Claim</b>.\n"
         "5. An admin reviews your claim. Once approved, the reward is credited to your wallet.\n"
@@ -896,20 +896,17 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             return
 
         reward = cents_to_usd(qr.reward_cents)
-        app_line = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
-        exp_line = ""
+        app_label = (getattr(qr, "app_name", None) or "QR task").strip()
+        exp_line = "No expiry"
         if qr.expires_at:
-            exp_line = f"Expires: {qr.expires_at.strftime('%d %b %Y, %H:%M')} UTC\n"
+            exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
         caption = (
-            f"<b>QR ready to scan</b>\n\n"
-            f"{app_line}"
+            f"<b>New task #{qr.id} · {app_label}</b>\n"
+            f"Your reward: <b>{reward}</b>\n"
+            f"Expires: {exp_line}\n"
+            f"Claim before opening the payment link.\n\n"
             f"Code: <code>{qr.code}</code>\n"
-            f"Reward: <b>{reward}</b>\n"
-            f"{exp_line}\n"
-            f"1. Open the app shown above\n"
-            f"2. Scan this QR\n"
-            f"3. Tap <b>Submit Claim</b> when done\n\n"
-            f"Only one successful claim is allowed for this QR."
+            f"Tap <b>Submit Claim</b> after you scan."
         )
         if qr.image_png:
             png = qr.image_png
@@ -1040,7 +1037,11 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
             if auto:
                 claim = auto
 
-            app_bit = f"App: <b>{qr.app_name}</b>\n" if getattr(qr, "app_name", None) else ""
+            app_bit = (
+                f"QR app: <b>{qr.app_name}</b>\n"
+                if getattr(qr, "app_name", None)
+                else ""
+            )
             if claim.status.value == "APPROVED":
                 text = (
                     f"<b>Claim approved</b>\n\n"
