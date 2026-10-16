@@ -52,7 +52,21 @@ async def create_notification(
             )
             tg_id = result.scalar_one_or_none()
             if tg_id:
-                await _bot.send_message(chat_id=tg_id, text=message)
+                try:
+                    await _bot.send_message(
+                        chat_id=tg_id, text=message, parse_mode="HTML"
+                    )
+                except Exception:
+                    # Fallback plain text if HTML fails
+                    plain = (
+                        message.replace("<b>", "")
+                        .replace("</b>", "")
+                        .replace("<code>", "")
+                        .replace("</code>", "")
+                        .replace("<i>", "")
+                        .replace("</i>", "")
+                    )
+                    await _bot.send_message(chat_id=tg_id, text=plain)
                 notif.telegram_sent = True
                 notif.sent_at = datetime.now(timezone.utc)
                 await session.flush()

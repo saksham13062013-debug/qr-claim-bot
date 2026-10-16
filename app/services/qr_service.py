@@ -190,19 +190,21 @@ async def claim_qr_atomic(
         metadata={"qr_code": qr.code, "reward_cents": qr.reward_cents},
     )
 
+    app_label = (getattr(qr, "app_name", None) or "").strip()
+    title = f"Task #{qr.id}" + (f" · {app_label}" if app_label else "")
     await create_notification(
         session,
         user_id=user_id,
         type_=NotificationType.CLAIM_SUBMITTED,
-        title="Claim Submitted",
+        title="Claim submitted",
         message=(
-            f"⏳ Claim Submitted\n\n"
-            f"🎟 QR: {qr.code}\n"
-            f"💰 Reward: ${qr.reward_cents / 100:.2f}\n"
-            f"📌 Status: Pending Approval\n\n"
-            f"Your claim is waiting for admin approval."
+            f"<b>Submitted</b> · {title}\n"
+            f"Reward: <b>${qr.reward_cents / 100:.2f}</b>\n"
+            f"Status: Pending review\n"
+            f"We will notify you here after approval."
         ),
         metadata={"claim_id": claim.id, "qr_code": qr.code},
+        send_telegram=False,
     )
 
     return claim, qr

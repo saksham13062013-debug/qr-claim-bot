@@ -1037,30 +1037,21 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
             if auto:
                 claim = auto
 
-            app_bit = (
-                f"QR app: <b>{qr.app_name}</b>\n"
-                if getattr(qr, "app_name", None)
-                else ""
-            )
+            app_label = (getattr(qr, "app_name", None) or "").strip()
+            title_line = f"Task #{qr.id}" + (f" · {app_label}" if app_label else "")
             if claim.status.value == "APPROVED":
                 text = (
-                    f"<b>Claim approved</b>\n\n"
-                    f"{app_bit}"
-                    f"QR: <code>{qr.code}</code>\n"
+                    f"<b>Approved</b> · {title_line}\n"
                     f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
-                    f"Status: <b>Approved</b>\n\n"
-                    f"The amount has been credited to your wallet.\n"
-                    f"You can withdraw anytime from the menu."
+                    f"Credited to your wallet.\n"
+                    f"Menu → Balance / Withdraw"
                 )
             else:
                 text = (
-                    f"<b>Claim submitted</b>\n\n"
-                    f"{app_bit}"
-                    f"QR: <code>{qr.code}</code>\n"
+                    f"<b>Submitted</b> · {title_line}\n"
                     f"Reward: <b>{cents_to_usd(qr.reward_cents)}</b>\n"
-                    f"Status: <b>Pending review</b>\n\n"
-                    f"An admin will review your claim shortly.\n"
-                    f"You will get a message here when it is approved or rejected."
+                    f"Status: Pending review\n"
+                    f"We will notify you here after approval."
                 )
             try:
                 await callback.message.edit_caption(

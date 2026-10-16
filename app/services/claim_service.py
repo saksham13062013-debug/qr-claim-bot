@@ -102,12 +102,19 @@ async def approve_claim(
         target_id=str(claim.id),
         metadata={"qr_code": qr.code, "user_id": user.id, "reward_cents": claim.reward_cents},
     )
+    app_label = (getattr(qr, "app_name", None) or "").strip()
+    title = f"Task #{qr.id}" + (f" · {app_label}" if app_label else "")
     await create_notification(
         session,
         user_id=user.id,
         type_=NotificationType.CLAIM_APPROVED,
         title="Claim approved",
-        message=f"Your claim for QR {qr.code} was approved. {claim.reward_cents/100:.2f} USD credited.",
+        message=(
+            f"<b>Approved</b> · {title}\n"
+            f"Reward: <b>${claim.reward_cents / 100:.2f}</b>\n"
+            f"Credited to your wallet.\n"
+            f"Menu → Balance / Withdraw"
+        ),
     )
     return claim
 
@@ -156,12 +163,21 @@ async def reject_claim(
         target_id=str(claim.id),
         metadata={"reason": reason},
     )
+    qr_id = qr.id if qr else claim.qr_code_id
+    app_label = (getattr(qr, "app_name", None) or "").strip() if qr else ""
+    reason_clean = (reason or "No reason").strip()[:300]
+    title = f"Task #{qr_id}" + (f" · {app_label}" if app_label else "")
     await create_notification(
         session,
         user_id=claim.user_id,
         type_=NotificationType.CLAIM_REJECTED,
         title="Claim rejected",
-        message=f"Your claim was rejected. Reason: {reason}",
+        message=(
+            f"<b>Rejected</b> · {title}\n"
+            f"Reason: {reason_clean}\n"
+            f"This claim will not be paid.\n"
+            f"Wait for the next task to claim again."
+        ),
     )
     return claim
 
@@ -189,6 +205,25 @@ async def hold_claim(
         actor_admin_id=admin_id,
         target_type="qr_claim",
         target_id=str(claim.id),
+    )
+    qr = (
+        await session.execute(select(QRCode).where(QRCode.id == claim.qr_code_id))
+    ).scalar_one_or_none()
+    app_label = (getattr(qr, "app_name", None) or "").strip() if qr else ""
+    title = f"Task #{qr.id if qr else claim.qr_code_id}" + (
+        f" · {app_label}" if app_label else ""
+    )
+    await create_notification(
+        session,
+        user_id=claim.user_id,
+        type_=NotificationType.CLAIM_SUBMITTED,
+        title="Claim on hold",
+        message=(
+            f"<b>On hold</b> · {title}\n"
+            f"Reward: <b>${claim.reward_cents / 100:.2f}</b>\n"
+            f"Under extra review.\n"
+            f"You will be notified when decided."
+        ),
     )
     return claim
 

@@ -121,12 +121,20 @@ async def mark_withdrawal_paid(
         target_id=str(w.id),
         metadata={"payment_reference": payment_reference},
     )
+    method = getattr(w, "payout_method", None) or "—"
     await create_notification(
         session,
         user_id=w.user_id,
         type_=NotificationType.WITHDRAWAL_PAID,
         title="Withdrawal paid",
-        message=f"Your withdrawal of ${w.amount_cents/100:.2f} was marked paid. Ref: {pay_key}",
+        message=(
+            f"<b>Withdrawal paid</b>\n\n"
+            f"Amount: <b>${w.amount_cents / 100:.2f}</b>\n"
+            f"Method: {method}\n"
+            f"Reference: <code>{pay_key}</code>\n"
+            f"Status: <b>Paid</b>\n\n"
+            f"Payment has been completed. If you do not see funds, contact support with the reference."
+        ),
     )
     return w
 
@@ -179,12 +187,20 @@ async def reject_withdrawal(
         target_id=str(w.id),
         metadata={"reason": reason},
     )
+    reason_clean = (reason or "No reason provided").strip()[:500]
     await create_notification(
         session,
         user_id=w.user_id,
         type_=NotificationType.WITHDRAWAL_REJECTED,
         title="Withdrawal rejected",
-        message=f"Your withdrawal was rejected and refunded. Reason: {reason}",
+        message=(
+            f"<b>Withdrawal rejected</b>\n\n"
+            f"Amount: <b>${w.amount_cents / 100:.2f}</b>\n"
+            f"Status: <b>Rejected</b>\n"
+            f"Reason: {reason_clean}\n\n"
+            f"The amount has been refunded to your wallet balance.\n"
+            f"You can withdraw again anytime from the menu."
+        ),
     )
     return w
 
