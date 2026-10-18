@@ -23,6 +23,8 @@ from app.models import (
     AdminRole,
     AuditAction,
     AuditLog,
+    BroadcastBatch,
+    BroadcastDelivery,
     ClaimStatus,
     QRClaim,
     QRCode,
@@ -1219,15 +1221,19 @@ async def broadcast(
     if buttons_raw:
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+        parts = []
+        for chunk in buttons_raw.replace("\n", ",").split(","):
+            chunk = chunk.strip()
+            if chunk:
+                parts.append(chunk)
         row = []
-        for part in buttons_raw.split(","):
-            part = part.strip()
+        for part in parts:
             if "|" not in part:
                 continue
             label, url = part.split("|", 1)
             label, url = label.strip()[:64], url.strip()
             if label and url.startswith(("http://", "https://", "tg://")):
-                row.append(InlineKeyboardButton(text=label, url=url, style="primary"))
+                row.append(InlineKeyboardButton(text=label, url=url))
         if row:
             rows = [row[i : i + 2] for i in range(0, len(row), 2)]
             reply_markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1252,10 +1258,21 @@ async def broadcast(
                 "message": "No users to send",
             }
 
+        batch = BroadcastBatch(
+            admin_id=admin.id,
+            preview=(message or "")[:255],
+            has_photo=bool(photo_bytes),
+            has_video=bool(video_bytes),
+        )
+        session.add(batch)
+        await session.flush()
+        batch_id = batch.id
+
         sem = _asyncio.Semaphore(25)
         sent = 0
         failed = 0
         lock_counters = _asyncio.Lock()
+        deliveries: list[tuple[int, int]] = []
         caption = message[:1024]
 
         async def _send_one(uid: int) -> None:
@@ -1266,7 +1283,7 @@ async def broadcast(
                         video = BufferedInputFile(
                             video_bytes, filename=video_filename
                         )
-                        await bot.send_video(
+                        msg = await bot.send_video(
                             chat_id=uid,
                             video=video,
                             caption=caption,
@@ -1277,7 +1294,7 @@ async def broadcast(
                         photo = BufferedInputFile(
                             photo_bytes, filename=photo_filename
                         )
-                        await bot.send_photo(
+                        msg = await bot.send_photo(
                             chat_id=uid,
                             photo=photo,
                             caption=caption,
@@ -1285,14 +1302,17 @@ async def broadcast(
                             reply_markup=reply_markup,
                         )
                     else:
-                        await bot.send_message(
+                        msg = await bot.send_message(
                             chat_id=uid,
                             text=message,
                             parse_mode="HTML",
                             reply_markup=reply_markup,
                         )
+                    mid = getattr(msg, "message_id", None)
                     async with lock_counters:
                         sent += 1
+                        if mid is not None:
+                            deliveries.append((uid, int(mid)))
                 except Exception:
                     async with lock_counters:
                         failed += 1
@@ -1301,6 +1321,18 @@ async def broadcast(
             *[_send_one(u.telegram_id) for u in users],
             return_exceptions=True,
         )
+
+        for uid, mid in deliveries:
+            session.add(
+                BroadcastDelivery(
+                    batch_id=batch_id,
+                    telegram_id=uid,
+                    message_id=mid,
+                )
+            )
+        batch.sent_count = sent
+        batch.failed_count = failed
+        session.add(batch)
 
         await write_audit(
             session,
@@ -1312,6 +1344,7 @@ async def broadcast(
                 "total": len(users),
                 "has_photo": bool(photo_bytes),
                 "has_video": bool(video_bytes),
+                "batch_id": batch_id,
             },
         )
         return {
@@ -1320,8 +1353,238 @@ async def broadcast(
             "failed": failed,
             "total": len(users),
             "has_photo": bool(photo_bytes),
-                "has_video": bool(video_bytes),
+            "has_video": bool(video_bytes),
+            "batch_id": batch_id,
         }
+
+
+
+
+@router.get("/admin/broadcasts")
+async def list_broadcasts(
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await session.execute(
+            select(BroadcastBatch).order_by(BroadcastBatch.created_at.desc()).limit(20)
+        )
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "id": b.id,
+                "preview": b.preview,
+                "has_photo": b.has_photo,
+                "has_video": b.has_video,
+                "sent_count": b.sent_count,
+                "failed_count": b.failed_count,
+                "deleted": b.deleted,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+            }
+            for b in rows
+        ]
+    }
+
+
+@router.post("/admin/broadcasts/{batch_id}/delete")
+async def delete_broadcast(
+    batch_id: int,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    """Delete a broadcast from all user chats (best-effort, Telegram 48h limit)."""
+    import asyncio as _asyncio
+
+    from app.bot import get_bot
+
+    batch = (
+        await session.execute(
+            select(BroadcastBatch).where(BroadcastBatch.id == batch_id)
+        )
+    ).scalar_one_or_none()
+    if not batch:
+        raise HTTPException(404, "Broadcast not found")
+    if batch.deleted:
+        return {"ok": True, "deleted": 0, "failed": 0, "message": "Already deleted"}
+
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(503, "Bot is offline")
+
+    rows = (
+        await session.execute(
+            select(BroadcastDelivery).where(
+                BroadcastDelivery.batch_id == batch_id,
+                BroadcastDelivery.deleted.is_(False),
+            )
+        )
+    ).scalars().all()
+
+    sem = _asyncio.Semaphore(25)
+    deleted = 0
+    failed = 0
+    lock = _asyncio.Lock()
+
+    async def _del_one(row: BroadcastDelivery) -> None:
+        nonlocal deleted, failed
+        async with sem:
+            try:
+                await bot.delete_message(chat_id=row.telegram_id, message_id=row.message_id)
+                row.deleted = True
+                async with lock:
+                    deleted += 1
+            except Exception:
+                async with lock:
+                    failed += 1
+
+    await _asyncio.gather(*[_del_one(r) for r in rows], return_exceptions=True)
+    batch.deleted = True
+    session.add(batch)
+    await session.commit()
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "failed": failed,
+        "total": len(rows),
+        "batch_id": batch_id,
+    }
+
+
+@router.post("/admin/broadcasts/delete-last")
+async def delete_last_broadcast(
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    batch = (
+        await session.execute(
+            select(BroadcastBatch)
+            .where(BroadcastBatch.deleted.is_(False))
+            .order_by(BroadcastBatch.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not batch:
+        raise HTTPException(404, "No broadcast to delete")
+    # reuse logic via internal call pattern
+    return await delete_broadcast(batch.id, admin, session)
+
+
+
+
+@router.post("/admin/broadcast-channel")
+async def broadcast_to_channel(
+    request: Request,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    """Post message/photo/video to a channel/group where the bot is admin."""
+    from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+
+    from app.bot import get_bot
+
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(503, "Bot is offline")
+
+    chat_id = ""
+    message = ""
+    photo_bytes = None
+    video_bytes = None
+    photo_filename = "ch.jpg"
+    video_filename = "ch.mp4"
+    buttons_raw = ""
+    ct = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        chat_id = str(form.get("chat_id") or "").strip()
+        message = str(form.get("message") or "").strip() or " "
+        buttons_raw = str(form.get("buttons") or "").strip()
+        file = form.get("photo")
+        video = form.get("video")
+        if file is not None and hasattr(file, "read"):
+            photo_bytes = await file.read()
+            photo_filename = getattr(file, "filename", None) or "ch.jpg"
+        if video is not None and hasattr(video, "read"):
+            video_bytes = await video.read()
+            video_filename = getattr(video, "filename", None) or "ch.mp4"
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        chat_id = str((body or {}).get("chat_id") or "").strip()
+        message = str((body or {}).get("message") or "").strip() or " "
+        buttons_raw = str((body or {}).get("buttons") or "").strip()
+
+    if not chat_id:
+        raise HTTPException(400, "chat_id required (e.g. -100… or @channel)")
+
+    reply_markup = None
+    if buttons_raw:
+        row = []
+        for part in buttons_raw.replace("\n", ",").split(","):
+            part = part.strip()
+            if "|" not in part:
+                continue
+            label, url = part.split("|", 1)
+            label, url = label.strip()[:64], url.strip()
+            if label and url.startswith(("http://", "https://", "tg://")):
+                row.append(InlineKeyboardButton(text=label, url=url))
+        if row:
+            rows = [row[i : i + 2] for i in range(0, len(row), 2)]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    try:
+        # resolve @username
+        target = chat_id
+        if chat_id.startswith("@"):
+            pass
+        else:
+            try:
+                target = int(chat_id)
+            except ValueError:
+                target = chat_id
+        if video_bytes:
+            msg = await bot.send_video(
+                chat_id=target,
+                video=BufferedInputFile(video_bytes, filename=video_filename),
+                caption=message[:1024],
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+        elif photo_bytes:
+            msg = await bot.send_photo(
+                chat_id=target,
+                photo=BufferedInputFile(photo_bytes, filename=photo_filename),
+                caption=message[:1024],
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+        else:
+            msg = await bot.send_message(
+                chat_id=target,
+                text=message,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+    except Exception as e:
+        raise HTTPException(400, f"Channel send failed: {type(e).__name__}: {e}")
+
+    await write_audit(
+        session,
+        action=AuditAction.BROADCAST_SENT,
+        actor_admin_id=admin.id,
+        target_type="channel",
+        target_id=str(chat_id),
+        metadata={"kind": "channel_broadcast", "message_id": getattr(msg, "message_id", None)},
+    )
+    return {
+        "ok": True,
+        "message": "Posted to channel",
+        "chat_id": str(chat_id),
+        "message_id": getattr(msg, "message_id", None),
+    }
 
 
 @router.post("/admin/change-password")
@@ -1573,21 +1836,71 @@ class NotifyUserRequest(BaseModel):
 
 @router.post("/admin/dm")
 async def send_direct_message(
-    body: DirectMessageRequest,
+    request: Request,
     admin: Admin = Depends(require_perm("users.view")),
     session: AsyncSession = Depends(get_db),
 ):
+    """DM a user: JSON {telegram_id, message} or multipart with optional photo."""
+    from aiogram.types import BufferedInputFile
+
     from app.bot import get_bot
 
     bot = get_bot()
     if not bot:
         raise HTTPException(503, "Bot is offline")
+
+    telegram_id = 0
+    message = ""
+    photo_bytes = None
+    photo_filename = "dm.jpg"
+    ct = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        try:
+            telegram_id = int(str(form.get("telegram_id") or "0"))
+        except ValueError:
+            telegram_id = 0
+        message = str(form.get("message") or "").strip()
+        file = form.get("photo") or form.get("file")
+        if file is not None and hasattr(file, "read"):
+            data = await file.read()
+            if data:
+                if len(data) > 8 * 1024 * 1024:
+                    raise HTTPException(400, "Photo too large (max 8MB)")
+                photo_bytes = data
+                photo_filename = getattr(file, "filename", None) or "dm.jpg"
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        try:
+            telegram_id = int((body or {}).get("telegram_id") or 0)
+        except (TypeError, ValueError):
+            telegram_id = 0
+        message = str((body or {}).get("message") or "").strip()
+
+    if not telegram_id:
+        raise HTTPException(400, "telegram_id required")
+    if not message and not photo_bytes:
+        raise HTTPException(400, "message or photo required")
+    if not message:
+        message = " "
+
     try:
-        await bot.send_message(
-            chat_id=body.telegram_id,
-            text=body.message,
-            parse_mode="HTML",
-        )
+        if photo_bytes:
+            await bot.send_photo(
+                chat_id=telegram_id,
+                photo=BufferedInputFile(photo_bytes, filename=photo_filename),
+                caption=message[:1024],
+                parse_mode="HTML",
+            )
+        else:
+            await bot.send_message(
+                chat_id=telegram_id,
+                text=message,
+                parse_mode="HTML",
+            )
     except Exception as e:
         raise HTTPException(400, f"Failed to send DM: {type(e).__name__}: {e}")
     await write_audit(
@@ -1595,10 +1908,10 @@ async def send_direct_message(
         action=AuditAction.BROADCAST_SENT,
         actor_admin_id=admin.id,
         target_type="user",
-        target_id=str(body.telegram_id),
-        metadata={"kind": "dm"},
+        target_id=str(telegram_id),
+        metadata={"kind": "dm", "has_photo": bool(photo_bytes)},
     )
-    return {"ok": True, "message": "DM sent"}
+    return {"ok": True, "message": "DM sent", "has_photo": bool(photo_bytes)}
 
 
 @router.post("/admin/qrs/{qr_id}/notify-user")

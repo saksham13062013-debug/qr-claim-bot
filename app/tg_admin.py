@@ -35,8 +35,11 @@ from app.models import (
 from app.services import claim_service, withdrawal_service
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 router = Router(name="tg_admin")
+
+
+def _settings():
+    return get_settings()
 
 
 class AdminFSM(StatesGroup):
@@ -45,6 +48,7 @@ class AdminFSM(StatesGroup):
     reject_claim_id = State()
     upload_qr_id = State()
     upload_qr_photo = State()
+    create_qr = State()
 
 
 # ---------------------------------------------------------------------------
@@ -52,28 +56,49 @@ class AdminFSM(StatesGroup):
 # ---------------------------------------------------------------------------
 
 async def is_tg_admin(telegram_id: int) -> bool:
-    if settings.owner_telegram_id and telegram_id == settings.owner_telegram_id:
+    try:
+        tid = int(telegram_id)
+    except (TypeError, ValueError):
+        return False
+    try:
+        owner = int(_settings().owner_telegram_id) if _settings().owner_telegram_id else 0
+    except (TypeError, ValueError):
+        owner = 0
+    if owner and tid == owner:
         return True
-    async with get_db_context() as session:
-        row = (
-            await session.execute(
-                select(Admin.id).where(
-                    Admin.is_active.is_(True),
-                    Admin.telegram_id == telegram_id,
+    try:
+        async with get_db_context() as session:
+            row = (
+                await session.execute(
+                    select(Admin.id).where(
+                        Admin.is_active.is_(True),
+                        Admin.telegram_id == tid,
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        return row is not None
+            ).scalar_one_or_none()
+            return row is not None
+    except Exception:
+        logger.exception("is_tg_admin db error")
+        return bool(owner and tid == owner)
 
 
 async def require_tg_admin(message: Message) -> bool:
     if not message.from_user:
         return False
     if message.chat.type != ChatType.PRIVATE:
-        await message.answer("Admin panel works in private chat only.")
+        await message.answer("Admin panel: open in private chat with the bot.")
         return False
-    if not await is_tg_admin(message.from_user.id):
-        await message.answer("Access denied.")
+    tid = message.from_user.id
+    if not await is_tg_admin(tid):
+        owner = getattr(_settings(), "owner_telegram_id", None)
+        await message.answer(
+            "<b>Access denied</b>\n\n"
+            f"Your Telegram ID: <code>{tid}</code>\n"
+            f"OWNER_TELEGRAM_ID: <code>{owner}</code>\n\n"
+            "Set Railway variable <code>OWNER_TELEGRAM_ID</code> to your ID,\n"
+            "or set this Telegram ID on an Admin in the web panel.",
+            parse_mode=ParseMode.HTML,
+        )
         return False
     return True
 
@@ -94,14 +119,25 @@ def admin_home_kb() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="Withdrawals", callback_data="tga:wd", style="success"),
-                InlineKeyboardButton(text="QR list", callback_data="tga:qrs", style="primary"),
+                InlineKeyboardButton(text="QR codes", callback_data="tga:qrs", style="primary"),
             ],
             [
                 InlineKeyboardButton(text="Users", callback_data="tga:users", style="primary"),
-                InlineKeyboardButton(text="Broadcast", callback_data="tga:bc", style="success"),
+                InlineKeyboardButton(text="Tickets", callback_data="tga:tickets", style="primary"),
             ],
             [
+                InlineKeyboardButton(text="Broadcast", callback_data="tga:bc", style="success"),
                 InlineKeyboardButton(text="Upload QR", callback_data="tga:upqr", style="success"),
+            ],
+            [
+                InlineKeyboardButton(text="Create QR", callback_data="tga:cqr", style="success"),
+                InlineKeyboardButton(text="Channels", callback_data="tga:channels", style="primary"),
+            ],
+            [
+                InlineKeyboardButton(text="Settings", callback_data="tga:settings", style="primary"),
+                InlineKeyboardButton(text="Del broadcast", callback_data="tga:delbc", style="danger"),
+            ],
+            [
                 InlineKeyboardButton(text="Close", callback_data="tga:close", style="danger"),
             ],
         ]
@@ -123,18 +159,32 @@ def back_kb() -> InlineKeyboardMarkup:
 # Entry
 # ---------------------------------------------------------------------------
 
-@router.message(Command("admin", "panel", "ap"))
+@router.message(Command("admin"))
+@router.message(Command("panel"))
+@router.message(Command("ap"))
+@router.message(F.text.regexp(r"(?i)^/(admin|panel|ap)(@\w+)?\s*$"))
 async def cmd_admin(message: Message, bot: Bot, state: FSMContext):
+    logger.info(
+        "/admin from uid=%s chat=%s type=%s",
+        getattr(message.from_user, "id", None),
+        message.chat.id,
+        getattr(message.chat, "type", None),
+    )
     if not await require_tg_admin(message):
         return
     await state.clear()
     await act(bot, message.chat.id)
-    await message.answer(
-        "<b>Admin Panel</b>\n"
-        "Manage claims, withdrawals, QR and broadcast from Telegram.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_home_kb(),
-    )
+    try:
+        await message.answer(
+            "<b>Admin Panel</b>\n"
+            "Web-equivalent controls in Telegram.\n"
+            "Pick a section below.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_home_kb(),
+        )
+    except Exception:
+        logger.exception("admin panel send failed")
+        await message.answer("Admin Panel — use buttons below.", reply_markup=admin_home_kb())
 
 
 @router.callback_query(F.data.startswith("tga:"))
@@ -201,6 +251,32 @@ async def tga_router(callback: CallbackQuery, bot: Bot, state: FSMContext):
             f"Send photo for QR #{qid} now.",
             reply_markup=back_kb(),
         )
+        return
+
+    if action == "tickets":
+        await show_tickets(callback.message)
+        return
+    if action == "channels":
+        await show_channels(callback.message)
+        return
+    if action == "settings":
+        await show_settings(callback.message)
+        return
+    if action == "cqr":
+        await state.set_state(AdminFSM.create_qr)
+        await callback.message.edit_text(
+            "<b>Create QR</b>\n\n"
+            "Send in one line:\n"
+            "<code>amount app_name expiry_minutes</code>\n\n"
+            "Example: <code>0.50 PhonePe 60</code>\n"
+            "/cancel to abort.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=back_kb(),
+        )
+        return
+
+    if action == "delbc":
+        await do_delete_last_broadcast(callback.message, bot)
         return
 
     if action == "bc":
@@ -475,7 +551,7 @@ async def show_users(message: Message):
 
 async def _admin_db_id(telegram_id: int) -> Optional[int]:
     async with get_db_context() as session:
-        if settings.owner_telegram_id and telegram_id == settings.owner_telegram_id:
+        if _settings().owner_telegram_id and int(telegram_id) == int(_settings().owner_telegram_id):
             row = (
                 await session.execute(
                     select(Admin).where(Admin.is_active.is_(True)).order_by(Admin.id).limit(1)
@@ -779,3 +855,170 @@ async def cmd_cancel(message: Message, state: FSMContext):
     if await state.get_state():
         await state.clear()
         await message.answer("Cancelled.", reply_markup=admin_home_kb())
+
+
+async def do_delete_last_broadcast(message: Message, bot: Bot):
+    from app.models import BroadcastBatch, BroadcastDelivery
+
+    async with get_db_context() as session:
+        batch = (
+            await session.execute(
+                select(BroadcastBatch)
+                .where(BroadcastBatch.deleted.is_(False))
+                .order_by(BroadcastBatch.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not batch:
+            await message.answer("No broadcast to delete.", reply_markup=back_kb())
+            return
+        rows = (
+            await session.execute(
+                select(BroadcastDelivery).where(
+                    BroadcastDelivery.batch_id == batch.id,
+                    BroadcastDelivery.deleted.is_(False),
+                )
+            )
+        ).scalars().all()
+        deleted = failed = 0
+        for r in rows:
+            try:
+                await bot.delete_message(chat_id=r.telegram_id, message_id=r.message_id)
+                r.deleted = True
+                deleted += 1
+            except Exception:
+                failed += 1
+        batch.deleted = True
+        session.add(batch)
+    await message.answer(
+        f"Broadcast #{batch.id} delete done.\nDeleted: {deleted}\nFailed: {failed}",
+        reply_markup=back_kb(),
+    )
+
+
+
+async def show_tickets(message: Message):
+    from app.models import SupportTicket, TicketStatus
+
+    async with get_db_context() as session:
+        rows = (
+            await session.execute(
+                select(SupportTicket)
+                .where(SupportTicket.status != TicketStatus.CLOSED)
+                .order_by(SupportTicket.created_at.desc())
+                .limit(10)
+            )
+        ).scalars().all()
+    if not rows:
+        text = "<b>Support tickets</b>\n\nNo open tickets."
+    else:
+        lines = ["<b>Open tickets</b>\n"]
+        for t in rows:
+            lines.append(f"#{t.id} · {t.status.value}\n{t.subject[:60]}")
+        text = "\n".join(lines)
+    try:
+        await message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+    except Exception:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+
+
+async def show_channels(message: Message):
+    from app.services import force_join_service
+
+    async with get_db_context() as session:
+        channels = await force_join_service.get_active_required_channels(session)
+        enabled = await force_join_service.is_force_join_enabled(session)
+    lines = [f"<b>Force-join</b> · {'ON' if enabled else 'OFF'}\n"]
+    if not channels:
+        lines.append("No required channels.")
+    else:
+        for c in channels:
+            title = getattr(c, "title", None) or getattr(c, "chat_id", c)
+            lines.append(f"• {title}")
+    text = "\n".join(lines)
+    try:
+        await message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+    except Exception:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+
+
+async def show_settings(message: Message):
+    from app.services import settings_service
+
+    keys = [
+        "force_join_enabled",
+        "claim_approval_required",
+        "min_withdrawal_usd",
+        "max_withdrawal_usd",
+        "maintenance_mode",
+        "dm_notify_on_post",
+    ]
+    lines = ["<b>Settings</b>\n"]
+    async with get_db_context() as session:
+        for k in keys:
+            try:
+                v = await settings_service.get_setting(session, k)
+            except Exception:
+                v = "?"
+            lines.append(f"{k}: <code>{v}</code>")
+    text = "\n".join(lines)
+    try:
+        await message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+    except Exception:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=back_kb())
+
+
+@router.message(AdminFSM.create_qr)
+async def create_qr_from_tg(message: Message, state: FSMContext):
+    if not message.from_user or not await is_tg_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.lower() in ("/cancel", "cancel"):
+        await state.clear()
+        await message.answer("Cancelled.", reply_markup=admin_home_kb())
+        return
+    parts = text.split()
+    if len(parts) < 2:
+        await message.answer("Format: amount app_name [expiry_minutes]\nExample: 0.50 PhonePe 60")
+        return
+    try:
+        amount = float(parts[0])
+    except ValueError:
+        await message.answer("Invalid amount")
+        return
+    app_name = parts[1]
+    expiry_min = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+    if amount <= 0:
+        await message.answer("Amount must be > 0")
+        return
+    from datetime import datetime, timedelta, timezone
+    from app.services import qr_service
+
+    admin_id = await _admin_db_id(message.from_user.id)
+    if not admin_id:
+        await message.answer("Admin DB id missing.")
+        return
+    expires_at = None
+    if expiry_min:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiry_min)
+    async with get_db_context() as session:
+        codes = await qr_service.create_qr_codes(
+            session,
+            reward_cents=int(round(amount * 100)),
+            quantity=1,
+            expires_at=expires_at,
+            campaign_name=None,
+            description=None,
+            admin_id=admin_id,
+            app_name=app_name,
+        )
+        code = codes[0].code if codes else "?"
+        qid = codes[0].id if codes else "?"
+    await state.clear()
+    await message.answer(
+        f"QR created.\\nTask #{qid}\\nCode: <code>{code}</code>\\n"
+        f"Reward: ${amount:.2f}\\nApp: {app_name}\\n\\n"
+        f"Use Upload QR to attach image, then notify from web or post.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=admin_home_kb(),
+    )

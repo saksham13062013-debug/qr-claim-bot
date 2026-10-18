@@ -239,30 +239,33 @@ class SupportStates(StatesGroup):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def typing(bot: Bot, chat_id: int, seconds: float = 0.4) -> None:
-    """Native Telegram typing bubble (not a text message)."""
+async def typing(bot: Bot, chat_id: int, seconds: float = 0.6) -> None:
+    """Native Telegram typing bubble (animation, not a text message)."""
     try:
         await bot.send_chat_action(chat_id, ChatAction.TYPING)
         if seconds > 0:
-            await asyncio.sleep(min(seconds, 1.0))
+            await asyncio.sleep(min(max(seconds, 0.35), 1.2))
+            await bot.send_chat_action(chat_id, ChatAction.TYPING)
     except Exception:
         pass
 
 
-async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 0.45) -> None:
+async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 0.7) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
         if seconds > 0:
-            await asyncio.sleep(min(seconds, 1.0))
+            await asyncio.sleep(min(max(seconds, 0.4), 1.2))
+            await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
     except Exception:
         pass
 
 
-async def uploading_video(bot: Bot, chat_id: int, seconds: float = 0.45) -> None:
+async def uploading_video(bot: Bot, chat_id: int, seconds: float = 0.7) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
         if seconds > 0:
-            await asyncio.sleep(min(seconds, 1.0))
+            await asyncio.sleep(min(max(seconds, 0.4), 1.2))
+            await bot.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
     except Exception:
         pass
 
@@ -427,6 +430,8 @@ async def _send_already_claimed(
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
+    await typing(bot, message.chat.id, 0.7)
+
     async with get_db_context() as session:
         await user_service.get_or_create_user(
             session,
@@ -439,14 +444,32 @@ async def cmd_start(message: Message, bot: Bot):
         if not welcome:
             welcome = settings.bot_welcome_message
 
-    await typing(bot, message.chat.id)
+        # Force join BEFORE anything else (start / claim deep-link)
+        force_enabled = await force_join_service.is_force_join_enabled(session)
+        if force_enabled:
+            channels = await force_join_service.get_active_required_channels(session)
+            if channels:
+                all_ok, missing = await force_join_service.check_membership(
+                    bot, message.from_user.id, channels
+                )
+                if not all_ok:
+                    await message.answer(
+                        "<b>Join required channels to continue</b>\n\n"
+                        "You must join the channel(s) below before using the bot.\n"
+                        "After joining, tap <b>I Joined – Check Again</b>.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=force_join_kb(missing),
+                    )
+                    return
 
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1].strip() if len(parts) > 1 else ""
     if payload.startswith("claim_"):
         code = payload[len("claim_") :].strip().upper()
         if code:
+            await typing(bot, message.chat.id, 0.5)
             await message.answer(welcome, reply_markup=main_menu_kb())
+            await uploading_photo(bot, message.chat.id, 0.6)
             await _send_claim_preview(message, bot, code)
             return
 
@@ -475,7 +498,7 @@ async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
         "<b>How to claim a reward</b>\n\n"
         "1. When a reward is live, you get a <b>private message</b> from this bot.\n"
         "2. Tap <b>CLAIM QR</b> (green).\n"
-        "3. Join any required channels if asked.\n"
+        "3. Required channels must already be joined (checked at /start).\n"
         "4. Review the QR image, then tap <b>Submit Claim</b>.\n"
         "5. An admin reviews your claim. Once approved, the reward is credited to your wallet.\n"
         "6. Withdraw via <b>UPI</b> or <b>Binance ID</b> when you reach the minimum.\n\n"
@@ -1000,7 +1023,7 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                     )
                     return
 
-    await callback.message.answer("Preparing your QR…")
+    await uploading_photo(bot, callback.message.chat.id, 0.8)
     await _send_claim_preview(callback.message, bot, code)
 
 
@@ -1008,8 +1031,8 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
 async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
     code = callback.data.split(":", 1)[1]
     user = callback.from_user
-    await callback.answer("Submitting…")
-    await typing(bot, callback.message.chat.id, 0.15)
+    await callback.answer()
+    await typing(bot, callback.message.chat.id, 0.7)
 
     async with get_db_context() as session:
         db_user = await user_service.get_or_create_user(
@@ -1121,31 +1144,42 @@ async def cancel_claim_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "check_membership")
 async def check_membership_cb(callback: CallbackQuery, bot: Bot):
-    await callback.answer("Checking…")
-    await typing(bot, callback.message.chat.id)
-    user = callback.from_user
+    await callback.answer()
+    await typing(bot, callback.message.chat.id, 0.6)
     async with get_db_context() as session:
         channels = await force_join_service.get_active_required_channels(session)
         all_ok, missing = await force_join_service.check_membership(
-            bot, user.id, channels
+            bot, callback.from_user.id, channels
         )
+        welcome = await settings_service.get_setting(session, "bot_welcome_message")
+        if not welcome:
+            welcome = settings.bot_welcome_message
     if all_ok:
+        name = callback.from_user.first_name or "there"
+        try:
+            await callback.message.edit_text(
+                f"<b>Verified</b> · Welcome, {name}!\n\n{welcome}",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            await callback.message.answer(
+                f"<b>Verified</b> · Welcome, {name}!\n\n{welcome}",
+                parse_mode=ParseMode.HTML,
+            )
         await callback.message.answer(
-            "<b>Membership verified</b>\n\n"
-            "You can now claim QR rewards when they are sent to you.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=nav_kb(),
+            "You can use the bot now.",
+            reply_markup=main_menu_kb(),
         )
-    else:
-        await callback.message.answer(
-            "You still need to join the channels below:",
-            reply_markup=force_join_kb(missing),
-        )
+        await callback.message.answer("Quick actions:", reply_markup=nav_kb())
+        return
+    await callback.message.answer(
+        "<b>Still missing channels</b>\n\n"
+        "Join all required channels, then tap check again.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=force_join_kb(missing),
+    )
 
 
-# ---------------------------------------------------------------------------
-# Lifecycle
-# ---------------------------------------------------------------------------
 
 def get_bot() -> Optional[Bot]:
     return _bot
@@ -1160,6 +1194,14 @@ async def start_bot() -> None:
     token = settings.bot_token
     _bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     _dp = Dispatcher(storage=MemoryStorage())
+    try:
+        from app.tg_admin import router as tg_admin_router
+
+        _dp.include_router(tg_admin_router)
+        logger.info("Telegram admin panel router loaded (first)")
+    except Exception:
+        logger.exception("Failed to load Telegram admin panel router")
+
     _dp.include_router(router)
     try:
         from app.group_mod import router as group_router
@@ -1168,13 +1210,6 @@ async def start_bot() -> None:
         logger.info("Group moderation router loaded")
     except Exception:
         logger.exception("Failed to load group moderation router")
-    try:
-        from app.tg_admin import router as tg_admin_router
-
-        _dp.include_router(tg_admin_router)
-        logger.info("Telegram admin panel router loaded")
-    except Exception:
-        logger.exception("Failed to load Telegram admin panel router")
     set_bot(_bot)
 
     me = await _bot.get_me()

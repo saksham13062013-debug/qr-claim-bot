@@ -531,6 +531,47 @@ class SupportTicket(Base):
     user: Mapped["User"] = relationship("User")
 
 
+class BroadcastBatch(Base):
+    """One broadcast campaign (text/photo/video)."""
+
+    __tablename__ = "broadcast_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("admins.id", ondelete="SET NULL"), nullable=True
+    )
+    preview: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    has_photo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    has_video: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class BroadcastDelivery(Base):
+    """Per-user Telegram message id for a broadcast (for later delete)."""
+
+    __tablename__ = "broadcast_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("broadcast_batches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_broadcast_delivery_batch_tg", "batch_id", "telegram_id"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Group moderation (admin-only tools)
 # ---------------------------------------------------------------------------

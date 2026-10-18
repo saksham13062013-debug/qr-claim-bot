@@ -505,8 +505,12 @@ function showSendDM(telegramId = "", username = "") {
       <input type="number" id="dmTgId" value="${telegramId || ""}" placeholder="e.g. 123456789" />
     </div>
     <div class="form-group">
-      <label>Message * (HTML allowed: &lt;b&gt;, &lt;code&gt;)</label>
+      <label>Message (HTML: &lt;b&gt;, &lt;code&gt;)</label>
       <textarea id="dmMessage" rows="5" placeholder="Your message to the user…"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Photo (optional)</label>
+      <input type="file" id="dmPhoto" accept="image/*" />
     </div>
     ${username ? `<p class="muted">User: @${escapeHtml(username)}</p>` : ""}
   `, `
@@ -518,13 +522,27 @@ function showSendDM(telegramId = "", username = "") {
 async function doSendDM() {
   const telegram_id = parseInt(document.getElementById("dmTgId").value, 10);
   const message = document.getElementById("dmMessage").value.trim();
-  if (!telegram_id || !message) {
-    toast("Telegram ID and message required", "error");
+  const fileInput = document.getElementById("dmPhoto");
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!telegram_id) {
+    toast("Telegram ID required", "error");
+    return;
+  }
+  if (!message && !file) {
+    toast("Message or photo required", "error");
     return;
   }
   try {
-    await api("/admin/dm", { method: "POST", body: { telegram_id, message } });
-    toast("DM sent");
+    if (file) {
+      const fd = new FormData();
+      fd.append("telegram_id", String(telegram_id));
+      fd.append("message", message || " ");
+      fd.append("photo", file);
+      await api("/admin/dm", { method: "POST", body: fd });
+    } else {
+      await api("/admin/dm", { method: "POST", body: { telegram_id, message } });
+    }
+    toast(file ? "DM sent with photo" : "DM sent");
     closeModal();
   } catch (e) { toast(e.message, "error"); }
 }
@@ -1383,11 +1401,87 @@ async function renderBroadcast() {
         <p class="muted" style="font-size:0.8rem;margin:0.35rem 0 0">Format: Label|url, Label2|url2 — URL buttons under the message.</p>
       </div>
       <label class="check-row"><input type="checkbox" id="broadcastActive" checked> Only active users</label>
-      <div style="margin-top:1rem">
+      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
         <button class="btn btn-primary" id="broadcastBtn" onclick="doBroadcast()">Send Broadcast</button>
+        <button class="btn btn-danger" onclick="deleteLastBroadcast()">Delete last broadcast</button>
       </div>
+      <p class="muted" style="font-size:0.8rem;margin-top:0.75rem">Delete works only for broadcasts sent after this update (message IDs are saved). Telegram may block deletes older than ~48 hours.</p>
+    </div>
+    <div class="card anim-fade" style="max-width:640px;margin-top:1rem">
+      <h3 style="margin-top:0">Post to channel / group</h3>
+      <p class="muted">Bot must be admin in that channel. Use chat id (-100…) or @username.</p>
+      <div class="form-group">
+        <label>Channel / group chat_id</label>
+        <input type="text" id="broadcastChannelChat" placeholder="-100123… or @mychannel" />
+      </div>
+      <div class="form-group">
+        <label>Message</label>
+        <textarea id="broadcastChannelMsg" rows="3" placeholder="Message for the channel"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Photo (optional)</label>
+        <input type="file" id="broadcastChannelPhoto" accept="image/*" />
+      </div>
+      <div class="form-group">
+        <label>Video (optional)</label>
+        <input type="file" id="broadcastChannelVideo" accept="video/*" />
+      </div>
+      <div class="form-group">
+        <label>Buttons (optional)</label>
+        <input type="text" id="broadcastChannelButtons" placeholder="Claim|https://t.me/bot, Channel|https://t.me/x" />
+      </div>
+      <button class="btn btn-success" onclick="doChannelBroadcast()">Post to channel</button>
+    </div>
+    <div class="card anim-fade" style="max-width:640px;margin-top:1rem" id="broadcastHistory">
+      <h3 style="margin-top:0">Recent broadcasts</h3>
+      <div id="broadcastHistoryBody" class="muted">Loading…</div>
     </div>
   `;
+  loadBroadcastHistory();
+}
+
+async function loadBroadcastHistory() {
+  const el = document.getElementById("broadcastHistoryBody");
+  if (!el) return;
+  try {
+    const data = await api("/admin/broadcasts");
+    if (!data.items || !data.items.length) {
+      el.innerHTML = "No broadcasts yet.";
+      return;
+    }
+    el.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr>
+      <th>ID</th><th>Preview</th><th>Sent</th><th>When</th><th></th>
+    </tr></thead><tbody>
+      ${data.items.map(b => `<tr>
+        <td>#${b.id}</td>
+        <td>${escapeHtml((b.preview || "").slice(0, 40))}${b.has_video ? " [video]" : b.has_photo ? " [photo]" : ""}</td>
+        <td>${b.sent_count}/${b.sent_count + b.failed_count}</td>
+        <td>${fmtDate(b.created_at)}</td>
+        <td>${b.deleted ? "<span class=\"muted\">Deleted</span>" :
+          `<button class="btn btn-sm btn-danger" onclick="deleteBroadcast(${b.id})">Delete</button>`}</td>
+      </tr>`).join("")}
+    </tbody></table></div>`;
+  } catch (e) {
+    el.innerHTML = escapeHtml(e.message);
+  }
+}
+
+async function deleteBroadcast(id) {
+  if (!confirm("Delete this broadcast from all user chats?")) return;
+  try {
+    const res = await api(`/admin/broadcasts/${id}/delete`, { method: "POST" });
+    toast(`Deleted: ${res.deleted}, Failed: ${res.failed}`);
+    loadBroadcastHistory();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function deleteLastBroadcast() {
+  if (!confirm("Delete the LAST broadcast from all user chats?")) return;
+  try {
+    const res = await api("/admin/broadcasts/delete-last", { method: "POST" });
+    toast(`Deleted: ${res.deleted}, Failed: ${res.failed}`);
+    loadBroadcastHistory();
+  } catch (e) { toast(e.message, "error"); }
 }
 
 async function doBroadcast() {
@@ -1774,3 +1868,25 @@ setInterval(() => {
 ensureNotifyPermission();
 setInterval(pollAdminEvents, 20000);
 setTimeout(pollAdminEvents, 3000);
+
+
+async function doChannelBroadcast() {
+  const chat_id = (document.getElementById("broadcastChannelChat") || {}).value.trim();
+  const message = (document.getElementById("broadcastChannelMsg") || {}).value.trim();
+  const buttons = (document.getElementById("broadcastChannelButtons") || {}).value.trim();
+  const photo = (document.getElementById("broadcastChannelPhoto") || {}).files?.[0];
+  const video = (document.getElementById("broadcastChannelVideo") || {}).files?.[0];
+  if (!chat_id) { toast("chat_id required", "error"); return; }
+  if (!message && !photo && !video) { toast("Message or media required", "error"); return; }
+  if (!confirm("Post to channel " + chat_id + "?")) return;
+  try {
+    const fd = new FormData();
+    fd.append("chat_id", chat_id);
+    fd.append("message", message || " ");
+    if (buttons) fd.append("buttons", buttons);
+    if (photo) fd.append("photo", photo);
+    if (video) fd.append("video", video);
+    const res = await api("/admin/broadcast-channel", { method: "POST", body: fd });
+    toast(res.message || "Posted");
+  } catch (e) { toast(e.message, "error"); }
+}
