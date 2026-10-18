@@ -795,6 +795,11 @@ function rejectClaim(id) {
       <label>Reason (required)</label>
       <textarea id="rejectReason" placeholder="e.g. Invalid submission, spam, etc."></textarea>
     </div>
+    <div class="form-group">
+      <label>Photo (optional)</label>
+      <input type="file" id="rejectPhoto" accept="image/png,image/jpeg,image/webp,image/gif" />
+      <p class="muted" style="font-size:0.8rem;margin:0.35rem 0 0">Sent to the user with the rejection message.</p>
+    </div>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-danger" onclick="doRejectClaim(${id})">Reject</button>
@@ -804,9 +809,18 @@ function rejectClaim(id) {
 async function doRejectClaim(id) {
   const reason = document.getElementById("rejectReason").value.trim();
   if (!reason) { toast("Reason required", "error"); return; }
+  const fileInput = document.getElementById("rejectPhoto");
+  const file = fileInput && fileInput.files && fileInput.files[0];
   try {
-    await api(`/admin/claims/${id}/reject`, { method: "POST", body: { reason } });
-    toast("Claim rejected");
+    if (file) {
+      const fd = new FormData();
+      fd.append("reason", reason);
+      fd.append("photo", file);
+      await api(`/admin/claims/${id}/reject`, { method: "POST", body: fd });
+    } else {
+      await api(`/admin/claims/${id}/reject`, { method: "POST", body: { reason } });
+    }
+    toast(file ? "Claim rejected (photo sent)" : "Claim rejected");
     closeModal();
     renderClaims();
   } catch (e) { toast(e.message, "error"); }
@@ -1349,10 +1363,24 @@ async function renderBroadcast() {
   document.getElementById("content").innerHTML = `
     <div class="card anim-fade" style="max-width:640px">
       <h3 style="margin-top:0">Broadcast Message</h3>
-      <p class="muted">Sends a Telegram message to all active users. Button locks until finished.</p>
+      <p class="muted">Text and optional photo to all users. Button locks until finished.</p>
       <div class="form-group">
-        <label>Message (HTML allowed: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</label>
+        <label>Message (HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</label>
         <textarea id="broadcastMsg" rows="6" placeholder="Hello! New rewards are live..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Photo (optional)</label>
+        <input type="file" id="broadcastPhoto" accept="image/png,image/jpeg,image/webp,image/gif" />
+      </div>
+      <div class="form-group">
+        <label>Video (optional)</label>
+        <input type="file" id="broadcastVideo" accept="video/mp4,video/webm,video/quicktime" />
+        <p class="muted" style="font-size:0.8rem;margin:0.35rem 0 0">Photo max 8MB · Video max 200MB. Video preferred if both set.</p>
+      </div>
+      <div class="form-group">
+        <label>Buttons (optional)</label>
+        <input type="text" id="broadcastButtons" placeholder="Open Bot|https://t.me/yourbot, Channel|https://t.me/channel" />
+        <p class="muted" style="font-size:0.8rem;margin:0.35rem 0 0">Format: Label|url, Label2|url2 — URL buttons under the message.</p>
       </div>
       <label class="check-row"><input type="checkbox" id="broadcastActive" checked> Only active users</label>
       <div style="margin-top:1rem">
@@ -1368,8 +1396,13 @@ async function doBroadcast() {
     return;
   }
   const message = document.getElementById("broadcastMsg").value.trim();
-  if (!message) { toast("Message required", "error"); return; }
-  if (!confirm("Send this message to all matching users?")) return;
+  const fileInput = document.getElementById("broadcastPhoto");
+  const videoInput = document.getElementById("broadcastVideo");
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  const video = videoInput && videoInput.files && videoInput.files[0];
+  const buttons = (document.getElementById("broadcastButtons") || {}).value || "";
+  if (!message && !file && !video) { toast("Message, photo, or video required", "error"); return; }
+  if (!confirm("Send broadcast to all matching users?")) return;
   const btn = document.getElementById("broadcastBtn");
   _broadcastBusy = true;
   if (btn) {
@@ -1379,14 +1412,28 @@ async function doBroadcast() {
   }
   fxClick();
   try {
-    const res = await api("/admin/broadcast", {
-      method: "POST",
-      body: {
-        message,
-        only_active: document.getElementById("broadcastActive").checked,
-      },
-    });
-    toast(`Sent: ${res.sent}, Failed: ${res.failed}, Total: ${res.total}`);
+    const onlyActive = document.getElementById("broadcastActive").checked;
+    let res;
+    if (file || video || buttons.trim()) {
+      const fd = new FormData();
+      fd.append("message", message || " ");
+      fd.append("only_active", onlyActive ? "true" : "false");
+      if (buttons.trim()) fd.append("buttons", buttons.trim());
+      if (file) fd.append("photo", file);
+      if (video) fd.append("video", video);
+      res = await api("/admin/broadcast", { method: "POST", body: fd });
+    } else {
+      res = await api("/admin/broadcast", {
+        method: "POST",
+        body: { message, only_active: onlyActive, buttons: buttons.trim() || undefined },
+      });
+    }
+    const notes = [];
+    if (res.has_photo) notes.push("photo");
+    if (res.has_video) notes.push("video");
+    if (res.has_buttons) notes.push("buttons");
+    const extra = notes.length ? ` (${notes.join("+")})` : "";
+    toast(`Sent: ${res.sent}, Failed: ${res.failed}, Total: ${res.total}${extra}`);
   } catch (e) {
     toast(e.message, "error");
   } finally {

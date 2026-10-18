@@ -36,121 +36,160 @@ router = Router(name="group_mod")
 
 HELP_SECTIONS: dict[str, str] = {
     "home": (
-        "<b>Group Management Bot</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "<i>Admin only · groups</i>\n\n"
-        "Pick a category:"
+        "<b>Group Tools</b>\n"
+        "<i>Admins only</i>\n\n"
+        "Choose a category below."
     ),
     "welcome": (
-        "<b>Welcome &amp; Goodbye</b>\n\n"
-        "/setwelcome — set welcome text\n"
-        "/welcome — toggle on/off\n"
-        "/setgoodbye — set goodbye text\n"
-        "/goodbye — toggle on/off\n"
-        "/resetwelcome — default welcome\n"
-        "/eid — custom emoji id (reply sticker)"
+        "<b>Welcome</b>\n\n"
+        "<code>/setwelcome</code> text\n"
+        "<code>/welcome</code> on/off\n"
+        "<code>/setgoodbye</code> text\n"
+        "<code>/goodbye</code> on/off\n"
+        "<code>/resetwelcome</code>\n"
+        "<code>/eid</code> sticker id\n\n"
+        "Placeholders: {name} {id} {chat}"
     ),
     "rules": (
         "<b>Rules</b>\n\n"
-        "/setrules — set rules\n"
-        "/rules — show rules"
+        "<code>/setrules</code> text\n"
+        "<code>/rules</code> show"
     ),
     "warns": (
-        "<b>Warn system</b>\n\n"
-        "/warn — warn user\n"
-        "/unwarn — remove 1 warn\n"
-        "/resetwarns — clear warns\n"
-        "/warns — check warns"
+        "<b>Warns</b>\n\n"
+        "<code>/warn</code> user\n"
+        "<code>/unwarn</code>\n"
+        "<code>/resetwarns</code>\n"
+        "<code>/warns</code> check\n\n"
+        "Limit reached → auto ban"
     ),
     "mod": (
         "<b>Moderation</b>\n\n"
-        "/ban /unban /kick /kickme\n"
-        "/tban 1h — temp ban\n"
-        "/mute /unmute\n"
-        "/ns /as — stickers off/on\n"
-        "/dban /dmute /dwarn — delete + action"
+        "<code>/ban</code> <code>/unban</code> <code>/kick</code>\n"
+        "<code>/tban 1h</code> temp ban\n"
+        "<code>/mute</code> <code>/unmute</code>\n"
+        "<code>/dban</code> <code>/dmute</code> <code>/dwarn</code>\n"
+        "<code>/ns</code> stickers off · <code>/as</code> on\n"
+        "<code>/kickme</code>"
     ),
     "pins": (
         "<b>Pins &amp; cleanup</b>\n\n"
-        "/pin /unpin /unpinall\n"
-        "/del — delete replied\n"
-        "/set1 reason — save quick reason\n"
-        "/d1 /w1 — del / del+warn with reason\n"
-        "/purge /spurge — purge to now\n"
-        "/scandeleted — note deleted accounts"
+        "<code>/pin</code> <code>/unpin</code> <code>/unpinall</code>\n"
+        "<code>/del</code> delete message\n"
+        "<code>/set1</code> save reason\n"
+        "<code>/d1</code> <code>/w1</code> del / del+warn\n"
+        "<code>/purge</code> from reply to now"
     ),
     "admin": (
         "<b>Admin</b>\n\n"
-        "/promote /demote\n"
-        "/approve /disapprove /approved\n"
-        "/admins\n"
-        "/slowmode [s]\n"
-        "/setlog /unsetlog\n"
-        "/send /reply — private message"
+        "<code>/promote</code> <code>/demote</code>\n"
+        "<code>/approve</code> <code>/disapprove</code>\n"
+        "<code>/approved</code> <code>/admins</code>\n"
+        "<code>/slowmode</code> seconds\n"
+        "<code>/setlog</code> <code>/unsetlog</code>\n"
+        "<code>/send</code> <code>/reply</code> DM"
     ),
     "automod": (
-        "<b>Auto-mod &amp; locks</b>\n\n"
-        "/antilink /antiforward /antiflood\n"
-        "/captcha /antinsfw /antichannel\n"
-        "/antichanneluser /premiumjoin\n"
-        "/autodelete [on|off|h]\n"
-        "/ml [chars] — msg length limit\n"
-        "/lock links|forward|anon\n"
-        "/unlock links|forward\n"
-        "/free /rfree /list free\n"
-        "/nightmode [21-08]"
+        "<b>Auto-mod</b>\n\n"
+        "<code>/antilink</code> <code>/antiforward</code>\n"
+        "<code>/antiflood</code> <code>/captcha</code>\n"
+        "<code>/antichannel</code> <code>/antinsfw</code>\n"
+        "<code>/autodelete</code> <code>/ml</code>\n"
+        "<code>/lock</code> <code>/unlock</code>\n"
+        "<code>/free</code> <code>/rfree</code> <code>/list free</code>\n"
+        "<code>/nightmode</code>"
     ),
     "notes": (
-        "<b>Notes · Filters · Blacklist · AFK</b>\n\n"
-        "/save /get /delnote /notes · #name\n"
-        "/filter /delfilter /filters\n"
-        "/blacklist /unblacklist\n"
-        "/blocklist /unblocklist\n"
-        "/afk [reason] /setafkemoji"
+        "<b>Notes · Filters · List</b>\n\n"
+        "<code>/save</code> <code>/get</code> <code>/notes</code>\n"
+        "<code>#name</code> quick note\n"
+        "<code>/filter</code> <code>/filters</code>\n"
+        "<code>/blacklist</code> <code>/blocklist</code>\n"
+        "<code>/afk</code> <code>/setafkemoji</code>"
     ),
     "info": (
         "<b>Info</b>\n\n"
-        "/id — user or chat id\n"
-        "/info — user details\n"
-        "/report — report to admins\n"
-        "/grouphelp — this menu"
+        "<code>/id</code> ids\n"
+        "<code>/info</code> user\n"
+        "<code>/report</code> to admins\n"
+        "<code>/grouphelp</code> this menu"
     ),
 }
+
+
+def _btn(text: str, data: str, style: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=data, style=style)
 
 
 def help_keyboard(section: str = "home") -> InlineKeyboardMarkup:
     if section == "home":
         rows = [
-            [
-                InlineKeyboardButton(text="Welcome", callback_data="ghelp:welcome", style="success"),
-                InlineKeyboardButton(text="Rules", callback_data="ghelp:rules", style="primary"),
-            ],
-            [
-                InlineKeyboardButton(text="Warns", callback_data="ghelp:warns", style="danger"),
-                InlineKeyboardButton(text="Moderation", callback_data="ghelp:mod", style="danger"),
-            ],
-            [
-                InlineKeyboardButton(text="Pins & Clean", callback_data="ghelp:pins", style="primary"),
-                InlineKeyboardButton(text="Admin", callback_data="ghelp:admin", style="primary"),
-            ],
-            [
-                InlineKeyboardButton(text="Auto-mod", callback_data="ghelp:automod", style="success"),
-                InlineKeyboardButton(text="Notes & AFK", callback_data="ghelp:notes", style="success"),
-            ],
-            [
-                InlineKeyboardButton(text="Info", callback_data="ghelp:info", style="primary"),
-                InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
-            ],
+            [_btn("Welcome", "ghelp:welcome", "success"), _btn("Rules", "ghelp:rules", "primary")],
+            [_btn("Warns", "ghelp:warns", "danger"), _btn("Moderation", "ghelp:mod", "danger")],
+            [_btn("Pins", "ghelp:pins", "primary"), _btn("Admin", "ghelp:admin", "primary")],
+            [_btn("Auto-mod", "ghelp:automod", "success"), _btn("Notes", "ghelp:notes", "success")],
+            [_btn("Info", "ghelp:info", "primary"), _btn("Close", "ghelp:close", "danger")],
         ]
     else:
         rows = [
             [
-                InlineKeyboardButton(text="Menu", callback_data="ghelp:home", style="primary"),
-                InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
+                _btn("« Menu", "ghelp:home", "primary"),
+                _btn("Close", "ghelp:close", "danger"),
             ]
         ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
+
+
+def ok_kb() -> InlineKeyboardMarkup:
+    """Short action row after admin commands."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Help", callback_data="ghelp:home", style="primary"),
+                InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
+            ]
+        ]
+    )
+
+
+def mod_result_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Warns", callback_data="ghelp:warns", style="danger"),
+                InlineKeyboardButton(text="Mod", callback_data="ghelp:mod", style="danger"),
+            ],
+            [
+                InlineKeyboardButton(text="Help", callback_data="ghelp:home", style="primary"),
+                InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
+            ],
+        ]
+    )
+
+
+def _mention_html(user) -> str:
+    """Telegram HTML mention for a user."""
+    if not user:
+        return "someone"
+    name = (user.full_name or user.username or str(user.id)).replace("<", "").replace(">", "")
+    return f'<a href="tg://user?id={user.id}">{name}</a>'
+
+
+def _format_welcome(tmpl: str, user, chat_title: str) -> str:
+    name = (user.full_name or user.username or str(user.id)) if user else "User"
+    mention = _mention_html(user)
+    return (
+        tmpl.replace("{mention}", mention)
+        .replace("%mention%", mention)
+        .replace("{name}", name)
+        .replace("{id}", str(user.id) if user else "")
+        .replace("{chat}", chat_title or "")
+        .replace("%name%", name)
+        .replace("%id%", str(user.id) if user else "")
+        .replace("%chat%", chat_title or "")
+    )
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -306,13 +345,13 @@ async def cmd_setwelcome(message: Message, bot: Bot):
         return
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        await message.reply("Usage: /setwelcome Your welcome text\nUse {name} {id} {chat}")
+        await message.reply("Usage: /setwelcome text\nUse {mention} {name} {id} {chat}")
         return
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.welcome_text = parts[1][:4000]
         s.welcome_enabled = True
-    await message.reply("Welcome saved · ON")
+    await message.reply("Welcome saved · ON", reply_markup=ok_kb())
 
 
 @router.message(Command("welcome"))
@@ -373,7 +412,7 @@ async def cmd_setrules(message: Message, bot: Bot):
     async with get_db_context() as session:
         s = await get_or_create_settings(session, message.chat.id)
         s.rules_text = parts[1][:8000]
-    await message.reply("Rules saved")
+    await message.reply("Rules saved", reply_markup=ok_kb())
 
 
 @router.message(Command("rules"))
@@ -434,8 +473,9 @@ async def cmd_warn(message: Message, bot: Bot):
         s = await get_or_create_settings(session, message.chat.id)
         limit = s.warn_limit or 3
     await message.reply(
-        f"User <code>{uid}</code> warned ({count}/{limit}).\nReason: {reason}",
+        f"Warned <code>{uid}</code> ({count}/{limit})\nReason: {reason}",
         parse_mode=ParseMode.HTML,
+        reply_markup=mod_result_kb(),
     )
     if count >= limit:
         try:
@@ -532,7 +572,7 @@ async def cmd_ban(message: Message, bot: Bot):
         return
     try:
         await bot.ban_chat_member(message.chat.id, uid)
-        await message.reply(f"Banned <code>{uid}</code>.\nReason: {_reason(message)}", parse_mode=ParseMode.HTML)
+        await message.reply(f"Banned {_mention_html(message.reply_to_message.from_user) if message.reply_to_message and message.reply_to_message.from_user else uid}.\nReason: {_reason(message)}", parse_mode=ParseMode.HTML, reply_markup=mod_result_kb())
     except Exception as e:
         await message.reply(f"Ban failed: {e}")
 
@@ -547,7 +587,7 @@ async def cmd_unban(message: Message, bot: Bot):
         return
     try:
         await bot.unban_chat_member(message.chat.id, uid, only_if_banned=True)
-        await message.reply(f"Unbanned <code>{uid}</code>.", parse_mode=ParseMode.HTML)
+        await message.reply(f"Unbanned <code>{uid}</code>.", parse_mode=ParseMode.HTML, reply_markup=mod_result_kb())
     except Exception as e:
         await message.reply(f"Unban failed: {e}")
 
@@ -563,7 +603,7 @@ async def cmd_kick(message: Message, bot: Bot):
     try:
         await bot.ban_chat_member(message.chat.id, uid)
         await bot.unban_chat_member(message.chat.id, uid)
-        await message.reply(f"Kicked <code>{uid}</code>.", parse_mode=ParseMode.HTML)
+        await message.reply(f"Kicked <code>{uid}</code>.", parse_mode=ParseMode.HTML, reply_markup=mod_result_kb())
     except Exception as e:
         await message.reply(f"Kick failed: {e}")
 
@@ -610,7 +650,7 @@ async def cmd_mute(message: Message, bot: Bot):
     perms = ChatPermissions(can_send_messages=False)
     try:
         await bot.restrict_chat_member(message.chat.id, uid, permissions=perms)
-        await message.reply(f"Muted <code>{uid}</code>.", parse_mode=ParseMode.HTML)
+        await message.reply(f"Muted <code>{uid}</code>.", parse_mode=ParseMode.HTML, reply_markup=mod_result_kb())
     except Exception as e:
         await message.reply(f"Mute failed: {e}")
 
@@ -631,7 +671,7 @@ async def cmd_unmute(message: Message, bot: Bot):
     )
     try:
         await bot.restrict_chat_member(message.chat.id, uid, permissions=perms)
-        await message.reply(f"Unmuted <code>{uid}</code>.", parse_mode=ParseMode.HTML)
+        await message.reply(f"Unmuted <code>{uid}</code>.", parse_mode=ParseMode.HTML, reply_markup=mod_result_kb())
     except Exception as e:
         await message.reply(f"Unmute failed: {e}")
 
@@ -725,7 +765,7 @@ async def cmd_pin(message: Message, bot: Bot):
         return
     try:
         await bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        await message.reply("Pinned")
+        await message.reply("Pinned", reply_markup=ok_kb())
     except Exception as e:
         await message.reply(f"Pin failed: {e}")
 
@@ -736,7 +776,7 @@ async def cmd_unpin(message: Message, bot: Bot):
         return
     try:
         await bot.unpin_chat_message(message.chat.id)
-        await message.reply("Unpinned")
+        await message.reply("Unpinned", reply_markup=ok_kb())
     except Exception as e:
         await message.reply(f"Unpin failed: {e}")
 
@@ -747,7 +787,7 @@ async def cmd_unpinall(message: Message, bot: Bot):
         return
     try:
         await bot.unpin_all_chat_messages(message.chat.id)
-        await message.reply("All unpinned")
+        await message.reply("All unpinned", reply_markup=ok_kb())
     except Exception as e:
         await message.reply(f"unpinall failed: {e}")
 
@@ -983,7 +1023,7 @@ async def cmd_send(message: Message, bot: Bot):
         return
     try:
         await bot.send_message(uid, parts[2])
-        await message.reply("Sent")
+        await message.reply("Sent", reply_markup=ok_kb())
     except Exception as e:
         await message.reply(f"Send failed: {e}")
 
@@ -1380,17 +1420,26 @@ async def on_join(message: Message, bot: Bot):
         s = await get_or_create_settings(session, message.chat.id)
         if not s.welcome_enabled:
             return
-        tmpl = s.welcome_text or "Welcome {name} to {chat}!"
-    for m in message.new_chat_members or []:
-        text = (
-            tmpl.replace("{name}", m.full_name or str(m.id))
-            .replace("{id}", str(m.id))
-            .replace("{chat}", message.chat.title or "")
+        tmpl = s.welcome_text or "Welcome {mention} to {chat}!"
+    for member in message.new_chat_members or []:
+        if member.is_bot:
+            continue
+        body = _format_welcome(tmpl, member, message.chat.title or "")
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Rules", callback_data="ghelp:rules", style="primary"),
+                    InlineKeyboardButton(text="Close", callback_data="ghelp:close", style="danger"),
+                ]
+            ]
         )
         try:
-            await message.answer(text)
+            await message.answer(body, parse_mode=ParseMode.HTML, reply_markup=kb)
         except Exception:
-            pass
+            try:
+                await message.answer(body, parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
 
 
 @router.message(F.left_chat_member)
@@ -1401,15 +1450,11 @@ async def on_leave(message: Message, bot: Bot):
         s = await get_or_create_settings(session, message.chat.id)
         if not s.goodbye_enabled:
             return
-        tmpl = s.goodbye_text or "Goodbye {name}."
-    m = message.left_chat_member
-    text = (
-        tmpl.replace("{name}", m.full_name or str(m.id))
-        .replace("{id}", str(m.id))
-        .replace("{chat}", message.chat.title or "")
-    )
+        tmpl = s.goodbye_text or "Goodbye {mention}."
+    member = message.left_chat_member
+    body = _format_welcome(tmpl, member, message.chat.title or "")
     try:
-        await message.answer(text)
+        await message.answer(body, parse_mode=ParseMode.HTML)
     except Exception:
         pass
 
@@ -1615,7 +1660,7 @@ async def cmd_reply(message: Message, bot: Bot):
         return
     try:
         await bot.send_message(message.reply_to_message.from_user.id, parts[1])
-        await message.reply("Sent.")
+        await message.reply("Sent.", reply_markup=ok_kb())
     except Exception as e:
         await message.reply(f"Failed: {e}")
 

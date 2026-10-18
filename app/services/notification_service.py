@@ -29,6 +29,8 @@ async def create_notification(
     message: str,
     metadata: Optional[dict[str, Any]] = None,
     send_telegram: bool = True,
+    photo_bytes: Optional[bytes] = None,
+    photo_filename: str = "image.jpg",
 ) -> Notification:
     notif = Notification(
         user_id=user_id,
@@ -45,6 +47,8 @@ async def create_notification(
         try:
             from sqlalchemy import select
 
+            from aiogram.types import BufferedInputFile
+
             from app.models import User
 
             result = await session.execute(
@@ -53,11 +57,21 @@ async def create_notification(
             tg_id = result.scalar_one_or_none()
             if tg_id:
                 try:
-                    await _bot.send_message(
-                        chat_id=tg_id, text=message, parse_mode="HTML"
-                    )
+                    if photo_bytes:
+                        photo = BufferedInputFile(
+                            photo_bytes, filename=photo_filename or "image.jpg"
+                        )
+                        await _bot.send_photo(
+                            chat_id=tg_id,
+                            photo=photo,
+                            caption=message[:1024],
+                            parse_mode="HTML",
+                        )
+                    else:
+                        await _bot.send_message(
+                            chat_id=tg_id, text=message, parse_mode="HTML"
+                        )
                 except Exception:
-                    # Fallback plain text if HTML fails
                     plain = (
                         message.replace("<b>", "")
                         .replace("</b>", "")
@@ -66,7 +80,20 @@ async def create_notification(
                         .replace("<i>", "")
                         .replace("</i>", "")
                     )
-                    await _bot.send_message(chat_id=tg_id, text=plain)
+                    try:
+                        if photo_bytes:
+                            from aiogram.types import BufferedInputFile
+
+                            photo = BufferedInputFile(
+                                photo_bytes, filename=photo_filename or "image.jpg"
+                            )
+                            await _bot.send_photo(
+                                chat_id=tg_id, photo=photo, caption=plain[:1024]
+                            )
+                        else:
+                            await _bot.send_message(chat_id=tg_id, text=plain)
+                    except Exception:
+                        await _bot.send_message(chat_id=tg_id, text=plain)
                 notif.telegram_sent = True
                 notif.sent_at = datetime.now(timezone.utc)
                 await session.flush()

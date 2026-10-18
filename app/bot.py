@@ -239,20 +239,30 @@ class SupportStates(StatesGroup):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def typing(bot: Bot, chat_id: int, seconds: float = 0.15) -> None:
+async def typing(bot: Bot, chat_id: int, seconds: float = 0.4) -> None:
+    """Native Telegram typing bubble (not a text message)."""
     try:
         await bot.send_chat_action(chat_id, ChatAction.TYPING)
         if seconds > 0:
-            await asyncio.sleep(min(seconds, 0.25))
+            await asyncio.sleep(min(seconds, 1.0))
     except Exception:
         pass
 
 
-async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 0.2) -> None:
+async def uploading_photo(bot: Bot, chat_id: int, seconds: float = 0.45) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
         if seconds > 0:
-            await asyncio.sleep(min(seconds, 0.3))
+            await asyncio.sleep(min(seconds, 1.0))
+    except Exception:
+        pass
+
+
+async def uploading_video(bot: Bot, chat_id: int, seconds: float = 0.45) -> None:
+    try:
+        await bot.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
+        if seconds > 0:
+            await asyncio.sleep(min(seconds, 1.0))
     except Exception:
         pass
 
@@ -1158,6 +1168,13 @@ async def start_bot() -> None:
         logger.info("Group moderation router loaded")
     except Exception:
         logger.exception("Failed to load group moderation router")
+    try:
+        from app.tg_admin import router as tg_admin_router
+
+        _dp.include_router(tg_admin_router)
+        logger.info("Telegram admin panel router loaded")
+    except Exception:
+        logger.exception("Failed to load Telegram admin panel router")
     set_bot(_bot)
 
     me = await _bot.get_me()

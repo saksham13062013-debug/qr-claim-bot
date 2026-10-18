@@ -124,6 +124,8 @@ async def reject_claim(
     claim_id: int,
     admin_id: int,
     reason: str,
+    photo_bytes: Optional[bytes] = None,
+    photo_filename: str = "reject.jpg",
 ) -> QRClaim:
     result = await session.execute(
         select(QRClaim).where(QRClaim.id == claim_id).with_for_update()
@@ -178,6 +180,8 @@ async def reject_claim(
             f"This claim will not be paid.\n"
             f"Wait for the next task to claim again."
         ),
+        photo_bytes=photo_bytes,
+        photo_filename=photo_filename or "reject.jpg",
     )
     return claim
 

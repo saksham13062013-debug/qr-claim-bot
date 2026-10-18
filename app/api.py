@@ -772,20 +772,58 @@ async def approve_claim(
 @router.post("/admin/claims/{claim_id}/reject")
 async def reject_claim(
     claim_id: int,
-    body: ClaimActionRequest,
+    request: Request,
     admin: Admin = Depends(require_perm("claims.reject")),
     session: AsyncSession = Depends(get_db),
 ):
-    if not body.reason:
+    """Reject claim. JSON {reason} or multipart: reason + optional photo."""
+    reason = ""
+    photo_bytes: Optional[bytes] = None
+    photo_filename = "reject.jpg"
+    ct = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        reason = str(form.get("reason") or "").strip()
+        file = form.get("photo") or form.get("file")
+        if file is not None and hasattr(file, "read"):
+            data = await file.read()
+            if data:
+                if len(data) > 5 * 1024 * 1024:
+                    raise HTTPException(400, "Photo too large (max 5MB)")
+                fct = (getattr(file, "content_type", "") or "").lower()
+                fname = (getattr(file, "filename", "") or "").lower()
+                ok = fct.startswith("image/") or fname.endswith(
+                    (".png", ".jpg", ".jpeg", ".webp", ".gif")
+                )
+                if not ok:
+                    raise HTTPException(400, "Only image files allowed")
+                photo_bytes = data
+                photo_filename = getattr(file, "filename", None) or "reject.jpg"
+    else:
+        try:
+            body = await request.json()
+            reason = str((body or {}).get("reason") or "").strip()
+        except Exception:
+            reason = ""
+    if not reason:
         raise HTTPException(400, "Reason required")
     try:
         claim = await claim_service.reject_claim(
-            session, claim_id, admin.id, body.reason
+            session,
+            claim_id,
+            admin.id,
+            reason,
+            photo_bytes=photo_bytes,
+            photo_filename=photo_filename,
         )
         await session.commit()
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "status": claim.status.value}
+    return {
+        "ok": True,
+        "status": claim.status.value,
+        "photo_sent": bool(photo_bytes),
+    }
 
 
 @router.post("/admin/claims/{claim_id}/hold")
@@ -1103,14 +1141,96 @@ _broadcast_lock = asyncio.Lock()
 
 @router.post("/admin/broadcast")
 async def broadcast(
-    body: BroadcastRequest,
+    request: Request,
     admin: Admin = Depends(require_perm("settings.edit")),
     session: AsyncSession = Depends(get_db),
 ):
-    """Send broadcast concurrently (fast) with a server-side lock to prevent double-send."""
+    """Broadcast text and optional photo. JSON or multipart (message, only_active, photo)."""
     import asyncio as _asyncio
 
+    from aiogram.types import BufferedInputFile
+
     from app.bot import get_bot
+
+    message = ""
+    only_active = True
+    photo_bytes: Optional[bytes] = None
+    video_bytes: Optional[bytes] = None
+    photo_filename = "broadcast.jpg"
+    video_filename = "broadcast.mp4"
+    buttons_raw = ""
+    ct = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        message = str(form.get("message") or "").strip()
+        only_active = str(form.get("only_active") or "true").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        buttons_raw = str(form.get("buttons") or "").strip()
+        file = form.get("photo") or form.get("file")
+        video = form.get("video")
+        if file is not None and hasattr(file, "read"):
+            data = await file.read()
+            if data:
+                if len(data) > 8 * 1024 * 1024:
+                    raise HTTPException(400, "Photo too large (max 8MB)")
+                fct = (getattr(file, "content_type", "") or "").lower()
+                fname = (getattr(file, "filename", "") or "").lower()
+                ok = fct.startswith("image/") or fname.endswith(
+                    (".png", ".jpg", ".jpeg", ".webp", ".gif")
+                )
+                if not ok:
+                    raise HTTPException(400, "Only image files allowed for photo")
+                photo_bytes = data
+                photo_filename = getattr(file, "filename", None) or "broadcast.jpg"
+        if video is not None and hasattr(video, "read"):
+            data = await video.read()
+            if data:
+                if len(data) > 200 * 1024 * 1024:
+                    raise HTTPException(400, "Video too large (max 200MB)")
+                fct = (getattr(video, "content_type", "") or "").lower()
+                fname = (getattr(video, "filename", "") or "").lower()
+                ok = fct.startswith("video/") or fname.endswith(
+                    (".mp4", ".mov", ".webm", ".mkv")
+                )
+                if not ok:
+                    raise HTTPException(400, "Only video files allowed")
+                video_bytes = data
+                video_filename = getattr(video, "filename", None) or "broadcast.mp4"
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        message = str((body or {}).get("message") or "").strip()
+        only_active = bool((body or {}).get("only_active", True))
+        buttons_raw = str((body or {}).get("buttons") or "").strip()
+
+    if not message and not photo_bytes and not video_bytes:
+        raise HTTPException(400, "Message, photo, or video required")
+    if not message:
+        message = " "
+
+    # buttons: "Label|https://url, Label2|https://url2"
+    reply_markup = None
+    if buttons_raw:
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        row = []
+        for part in buttons_raw.split(","):
+            part = part.strip()
+            if "|" not in part:
+                continue
+            label, url = part.split("|", 1)
+            label, url = label.strip()[:64], url.strip()
+            if label and url.startswith(("http://", "https://", "tg://")):
+                row.append(InlineKeyboardButton(text=label, url=url, style="primary"))
+        if row:
+            rows = [row[i : i + 2] for i in range(0, len(row), 2)]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=rows)
 
     if _broadcast_lock.locked():
         raise HTTPException(429, "Broadcast already in progress — wait for it to finish")
@@ -1120,7 +1240,7 @@ async def broadcast(
         if not bot:
             raise HTTPException(503, "Bot is offline — wait a few seconds and retry")
         q = select(User)
-        if body.only_active:
+        if only_active:
             q = q.where(User.status == UserStatus.ACTIVE)
         users = (await session.execute(q)).scalars().all()
         if not users:
@@ -1136,16 +1256,41 @@ async def broadcast(
         sent = 0
         failed = 0
         lock_counters = _asyncio.Lock()
+        caption = message[:1024]
 
         async def _send_one(uid: int) -> None:
             nonlocal sent, failed
             async with sem:
                 try:
-                    await bot.send_message(
-                        chat_id=uid,
-                        text=body.message,
-                        parse_mode="HTML",
-                    )
+                    if video_bytes:
+                        video = BufferedInputFile(
+                            video_bytes, filename=video_filename
+                        )
+                        await bot.send_video(
+                            chat_id=uid,
+                            video=video,
+                            caption=caption,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup,
+                        )
+                    elif photo_bytes:
+                        photo = BufferedInputFile(
+                            photo_bytes, filename=photo_filename
+                        )
+                        await bot.send_photo(
+                            chat_id=uid,
+                            photo=photo,
+                            caption=caption,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup,
+                        )
+                    else:
+                        await bot.send_message(
+                            chat_id=uid,
+                            text=message,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup,
+                        )
                     async with lock_counters:
                         sent += 1
                 except Exception:
@@ -1161,13 +1306,21 @@ async def broadcast(
             session,
             action=AuditAction.BROADCAST_SENT,
             actor_admin_id=admin.id,
-            metadata={"sent": sent, "failed": failed, "total": len(users)},
+            metadata={
+                "sent": sent,
+                "failed": failed,
+                "total": len(users),
+                "has_photo": bool(photo_bytes),
+                "has_video": bool(video_bytes),
+            },
         )
         return {
             "ok": True,
             "sent": sent,
             "failed": failed,
             "total": len(users),
+            "has_photo": bool(photo_bytes),
+                "has_video": bool(video_bytes),
         }
 
 
