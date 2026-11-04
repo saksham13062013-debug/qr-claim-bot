@@ -381,16 +381,35 @@ async def _is_bot_admin_user(user_id: int) -> bool:
 
 
 def _cid(message: Message) -> int:
-    """Active group chat id (current group or DM-connected)."""
-    return _resolve_target_chat_id(message) or _cid(message)
+    """Return the active group chat ID, including a DM-connected group.
+
+    Raises ValueError when the message is neither from a group nor from a
+    private chat connected to a group. This avoids silently using a wrong
+    chat ID and never calls itself recursively.
+    """
+    chat_id = _resolve_target_chat_id(message)
+    if chat_id is None:
+        raise ValueError(
+            "No group chat is available. Use /connect <group_chat_id> in private chat."
+        )
+    return int(chat_id)
 
 
 def _resolve_target_chat_id(message: Message) -> Optional[int]:
-    """Group chat, or connected chat when used from private DM."""
-    if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-        return _cid(message)
-    if message.chat.type == ChatType.PRIVATE and message.from_user:
-        return _CONNECTED_CHATS.get(message.from_user.id)
+    """Return this group's ID, or the connected group ID for a private DM."""
+    chat = getattr(message, "chat", None)
+    if chat is None:
+        return None
+
+    if chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        return int(chat.id)
+
+    if chat.type == ChatType.PRIVATE:
+        user = getattr(message, "from_user", None)
+        if user is not None:
+            chat_id = _CONNECTED_CHATS.get(user.id)
+            return int(chat_id) if chat_id is not None else None
+
     return None
 
 
