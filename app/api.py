@@ -1701,6 +1701,34 @@ async def reset_message_template(
     return {"ok": True, "key": key}
 
 
+
+@router.get("/admin/premium-emojis")
+async def list_premium_emojis(
+    admin: Admin = Depends(require_perm("settings.view")),
+):
+    """Catalog of custom emoji ids for the admin message editor."""
+    from app.services.premium_emoji import EMOJI_IDS, pe
+    items = []
+    for key, (eid, fallback) in sorted(EMOJI_IDS.items()):
+        items.append({
+            "key": key,
+            "emoji_id": eid,
+            "fallback": fallback,
+            "html": pe(key),
+        })
+    return {"items": items}
+
+
+@router.post("/admin/message-templates/reset-all")
+async def reset_all_message_templates(
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services import message_templates as msg_tpl
+    n = await msg_tpl.reset_all_templates(session, admin_id=admin.id)
+    return {"ok": True, "reset": n}
+
+
 @router.post("/admin/change-password")
 async def change_password(
     body: ChangePasswordRequest,

@@ -19,7 +19,7 @@ from aiogram.types import (
 )
 
 from app.config import get_settings
-from app.services.premium_emoji import pe
+from app.services.premium_emoji import pe, pe_id
 from app.db import get_db_context
 from app.models import (
     GroupApprovedUser,
@@ -44,133 +44,125 @@ _CONNECTED_CHATS: dict[int, int] = {}
 
 HELP_SECTIONS: dict[str, str] = {
     "home": (
-        "🛠 <b>Group Tools</b>\n"
-        "<i>Admins · group or private DM</i>\n\n"
-        "In DM: <code>/connect -100…</code> then run commands.\n"
-        "Pick a category 👇"
+        f"{pe('tools')} <b>Group Tools</b>\n"
+        f"<i>Admins · group or private DM</i>\n\n"
+        f"In DM: <code>/connect -100…</code> then run commands.\n"
+        f"{pe('spark')} Pick a category below"
     ),
     "welcome": (
-        "👋 <b>Welcome &amp; Goodbye</b>\n\n"
-        "<code>/setwelcome</code> text\n"
-        "<code>/welcome</code> on/off\n"
-        "<code>/setgoodbye</code> text\n"
-        "<code>/goodbye</code> on/off\n"
-        "<code>/resetwelcome</code>\n"
-        "<code>/eid</code> custom emoji id\n\n"
-        "Placeholders: <code>{mention}</code> <code>{name}</code> <code>{id}</code> <code>{chat}</code>"
+        f"{pe('wave')} <b>Welcome &amp; Goodbye</b>\n\n"
+        f"<code>/setwelcome</code> text\n"
+        f"<code>/welcome</code> on/off\n"
+        f"<code>/setgoodbye</code> text\n"
+        f"<code>/goodbye</code> on/off\n"
+        f"<code>/resetwelcome</code>\n"
+        f"<code>/eid</code> custom emoji id\n\n"
+        f"Placeholders: <code>{{mention}}</code> <code>{{name}}</code> <code>{{id}}</code> <code>{{chat}}</code>"
     ),
     "rules": (
-        "📜 <b>Rules</b>\n\n"
-        "<code>/setrules</code> text\n"
-        "<code>/rules</code> show rules"
+        f"{pe('rules')} <b>Rules</b>\n\n"
+        f"<code>/setrules</code> text\n"
+        f"<code>/rules</code> show rules"
     ),
     "warns": (
-        "⚠️ <b>Warn system</b>\n\n"
-        "<code>/warn</code> reply or id\n"
-        "<code>/unwarn</code>\n"
-        "<code>/resetwarns</code>\n"
-        "<code>/warns</code> check\n\n"
-        "At limit → auto ban"
+        f"{pe('warn')} <b>Warn system</b>\n\n"
+        f"<code>/warn</code> reply or id\n"
+        f"<code>/unwarn</code>\n"
+        f"<code>/resetwarns</code>\n"
+        f"<code>/warns</code> check\n\n"
+        f"At limit → auto ban"
     ),
     "mod": (
-        "🚫 <b>Moderation</b>\n\n"
-        "<code>/ban</code> <code>/unban</code> <code>/kick</code>\n"
-        "<code>/tban 1h</code> temp ban\n"
-        "<code>/mute</code> <code>/unmute</code>\n"
-        "<code>/tmute 30m</code> temp mute\n"
-        "<code>/dban</code> <code>/dmute</code> <code>/dwarn</code>\n"
-        "<code>/ns</code> stickers off · <code>/as</code> on\n"
-        "<code>/kickme</code> leave group\n<code>/unbanall</code> unban bot-banned users\n<code>/unmuteall</code> unmute bot-muted users\n<code>/frozen</code> check user (reply)\n<code>/scanfrozen</code> scan logged users\n"
-        "<code>/purge</code> delete to reply"
+        f"{pe('ban')} <b>Moderation</b>\n\n"
+        f"<code>/ban</code> <code>/unban</code> <code>/kick</code>\n"
+        f"<code>/tban 1h</code> temp ban\n"
+        f"<code>/mute</code> <code>/unmute</code>\n"
+        f"<code>/lock</code> <code>/unlock</code> user message lock\n"
+        f"<code>/locks</code> list locked\n"
+        f"<code>/unbanall</code> <code>/unmuteall</code>\n"
+        f"<code>/frozen</code> <code>/scanfrozen</code>\n"
+        f"<code>/purge</code> delete to reply"
     ),
     "pins": (
-        "📌 <b>Pins &amp; cleanup</b>\n\n"
-        "<code>/pin</code> <code>/unpin</code> <code>/unpinall</code>\n"
-        "<code>/del</code> delete replied\n"
-        "<code>/set1</code> save reason\n"
-        "<code>/d1</code> <code>/w1</code> quick actions\n"
-        "<code>/purge</code> <code>/spurge</code>\n"
-        "<code>/scandeleted</code>"
+        f"{pe('pin')} <b>Pins &amp; cleanup</b>\n\n"
+        f"<code>/pin</code> <code>/unpin</code> <code>/unpinall</code>\n"
+        f"<code>/del</code> delete replied\n"
+        f"<code>/purge</code> <code>/spurge</code>"
     ),
     "admin": (
-        "✅ <b>Admin tools</b>\n\n"
-        "<code>/promote</code> <code>/demote</code>\n"
-        "<code>/approve</code> <code>/disapprove</code>\n"
-        "<code>/approved</code> list\n"
-        "<code>/admins</code> list\n"
-        "<code>/staff</code> staff list\n"
-        "<code>/title</code> admin title\n"
-        "<code>/invitelink</code> invite link\n"
-        "<code>/slowmode</code> seconds\n"
-        "<code>/zombies</code> scan deleted accounts"
+        f"{pe('crown')} <b>Admin tools</b>\n\n"
+        f"<code>/promote</code> <code>/demote</code>\n"
+        f"<code>/approve</code> <code>/disapprove</code>\n"
+        f"<code>/admins</code> <code>/staff</code>\n"
+        f"<code>/slowmode</code> seconds"
     ),
     "automod": (
-        "🛡 <b>Auto-mod</b>\n\n"
-        "<code>/antilink</code> <code>/antiforward</code>\n"
-        "<code>/antiflood</code> <code>/captcha</code>\n"
-        "<code>/antichannel</code>\n"
-        "<code>/lock</code> links|forward|anon\n"
-        "<code>/unlock</code>\n"
-        "<code>/free</code> <code>/rfree</code> <code>/list free</code>\n"
-        "<code>/nightmode</code>"
+        f"{pe('shield')} <b>Auto-mod</b>\n\n"
+        f"<code>/antilink</code> <code>/antiforward</code>\n"
+        f"<code>/antiflood</code>\n"
+        f"<code>/lock</code> links|forward|anon\n"
+        f"<code>/unlock</code>"
     ),
     "forcejoin": (
-        "🔗 <b>Group force-join</b>\n\n"
-        "Separate from bot DM force-join.\n\n"
-        "<code>/forcejoin</code> on/off\n"
-        "<code>/addfjoin</code> @channel\n"
-        "<code>/delfjoin</code>\n"
-        "<code>/listfjoin</code>\n\n"
-        "Bot must be admin in those channels."
+        f"{pe('link')} <b>Group force-join</b>\n\n"
+        f"Separate from bot DM force-join.\n\n"
+        f"<code>/forcejoin</code> on/off\n"
+        f"<code>/addfjoin</code> @channel\n"
+        f"<code>/delfjoin</code>\n"
+        f"<code>/listfjoin</code>\n\n"
+        f"Bot must be admin in those channels."
     ),
     "notes": (
-        "📒 <b>Notes · Filters · List</b>\n\n"
-        "<code>/save</code> <code>/get</code> <code>/notes</code>\n"
-        "<code>#name</code> quick note\n"
-        "<code>/filter</code> <code>/filters</code>\n"
-        "<code>/blacklist</code> <code>/blocklist</code>\n"
-        "<code>/afk</code>"
+        f"{pe('note')} <b>Notes · Filters</b>\n\n"
+        f"<code>/save</code> <code>/get</code> <code>/notes</code>\n"
+        f"<code>/filter</code> <code>/filters</code>\n"
+        f"<code>/blacklist</code>"
     ),
     "connect": (
-        "🔌 <b>DM control</b>\n\n"
-        "Use group commands from private chat:\n\n"
-        "<code>/connect -100xxxxxxxxxx</code>\n"
-        "<code>/disconnect</code>\n"
-        "<code>/connection</code> status\n\n"
-        "You must be admin in that group.\n"
-        "Then /ban /mute /warn … apply there."
+        f"{pe('plug')} <b>DM control</b>\n\n"
+        f"<code>/connect -100xxxxxxxxxx</code>\n"
+        f"<code>/disconnect</code>\n"
+        f"<code>/connection</code>\n\n"
+        f"You must be admin in that group."
     ),
     "info": (
-        "ℹ️ <b>Info</b>\n\n"
-        "<code>/id</code> ids\n"
-        "<code>/info</code> user\n"
-        "<code>/report</code> report to admins\n"
-        "<code>/grouphelp</code> this menu\n"
-        "<code>/connect</code> DM remote control"
+        f"{pe('info')} <b>Info</b>\n\n"
+        f"<code>/id</code> <code>/info</code>\n"
+        f"<code>/report</code>\n"
+        f"<code>/grouphelp</code>"
     ),
 }
 
 
 
-def _btn(text: str, data: str, style: str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text=text, callback_data=data, style=style)
+def _btn(text: str, data: str, style: str, icon: str | None = None) -> InlineKeyboardButton:
+    kwargs = {"text": text, "callback_data": data, "style": style}
+    if icon:
+        try:
+            return InlineKeyboardButton(**kwargs, icon_custom_emoji_id=str(icon))
+        except TypeError:
+            pass
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except TypeError:
+        return InlineKeyboardButton(text=text, callback_data=data)
 
 
 def help_keyboard(section: str = "home") -> InlineKeyboardMarkup:
     if section == "home":
         rows = [
-            [_btn("👋 Welcome", "ghelp:welcome", "success"), _btn("Rules", "ghelp:rules", "primary")],
-            [_btn("⚠️ Warns", "ghelp:warns", "danger"), _btn("Moderation", "ghelp:mod", "danger")],
-            [_btn("📌 Pins", "ghelp:pins", "primary"), _btn("Admin", "ghelp:admin", "primary")],
-            [_btn("🛡 Auto-mod", "ghelp:automod", "success"), _btn("Force-join", "ghelp:forcejoin", "success")],
-            [_btn("📒 Notes", "ghelp:notes", "success"), _btn("DM connect", "ghelp:connect", "primary")],
-            [_btn("ℹ️ Info", "ghelp:info", "primary"), _btn("Close", "ghelp:close", "danger")],
+            [_btn("Welcome", "ghelp:welcome", "success", pe_id("wave")), _btn("Rules", "ghelp:rules", "primary", pe_id("rules"))],
+            [_btn("Warns", "ghelp:warns", "danger", pe_id("warn")), _btn("Moderation", "ghelp:mod", "danger", pe_id("ban"))],
+            [_btn("Pins", "ghelp:pins", "primary", pe_id("pin")), _btn("Admin", "ghelp:admin", "primary", pe_id("crown"))],
+            [_btn("Auto-mod", "ghelp:automod", "success", pe_id("shield")), _btn("Force-join", "ghelp:forcejoin", "success", pe_id("link"))],
+            [_btn("Notes", "ghelp:notes", "success", pe_id("note")), _btn("DM connect", "ghelp:connect", "primary", pe_id("plug"))],
+            [_btn("Info", "ghelp:info", "primary", pe_id("info")), _btn("Close", "ghelp:close", "danger", pe_id("cross"))],
         ]
     else:
         rows = [
             [
-                _btn("Menu", "ghelp:home", "primary"),
-                _btn("Close", "ghelp:close", "danger"),
+                _btn("Menu", "ghelp:home", "primary", pe_id("home")),
+                _btn("Close", "ghelp:close", "danger", pe_id("cross")),
             ]
         ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -183,8 +175,8 @@ def ok_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="❓ Help", callback_data="ghelp:home", style="primary"),
-                InlineKeyboardButton(text="❌ Close", callback_data="ghelp:close", style="danger"),
+                _btn("Help", "ghelp:home", "primary", pe_id("help")),
+                _btn("Close", "ghelp:close", "danger", pe_id("cross")),
             ]
         ]
     )
@@ -205,52 +197,49 @@ def mod_result_kb() -> InlineKeyboardMarkup:
     )
 
 
+def _mod_btn(text: str, data: str, style: str, icon: str | None = None) -> InlineKeyboardButton:
+    return _btn(text, data, style, icon)
+
+
 def action_kb(action: str, user_id: int) -> InlineKeyboardMarkup:
-    """Contextual buttons after a moderation action (mute → unmute, etc.)."""
+    """Contextual buttons after a moderation action."""
     uid = int(user_id)
     rows: list[list[InlineKeyboardButton]] = []
     if action == "mute":
         rows.append([
-            InlineKeyboardButton(text="🔊 Unmute", callback_data=f"gmod:unmute:{uid}", style="success"),
-            InlineKeyboardButton(text="🚫 Ban", callback_data=f"gmod:ban:{uid}", style="danger"),
+            _btn("Unmute", f"gmod:unmute:{uid}", "success", pe_id("unmute")),
+            _btn("Ban", f"gmod:ban:{uid}", "danger", pe_id("ban")),
         ])
     elif action == "unmute":
         rows.append([
-            InlineKeyboardButton(text="🔇 Mute again", callback_data=f"gmod:mute:{uid}", style="danger"),
-            InlineKeyboardButton(text="🚫 Ban", callback_data=f"gmod:ban:{uid}", style="danger"),
+            _btn("Mute again", f"gmod:mute:{uid}", "danger", pe_id("mute")),
+            _btn("Ban", f"gmod:ban:{uid}", "danger", pe_id("ban")),
         ])
     elif action == "ban":
         rows.append([
-            InlineKeyboardButton(text="✅ Unban", callback_data=f"gmod:unban:{uid}", style="success"),
+            _btn("Unban", f"gmod:unban:{uid}", "success", pe_id("check")),
         ])
     elif action == "unban":
         rows.append([
-            InlineKeyboardButton(text="Ban again", callback_data=f"gmod:ban:{uid}", style="danger"),
-        ])
-    elif action == "warn":
-        rows.append([
-            InlineKeyboardButton(text="Unwarn", callback_data=f"gmod:unwarn:{uid}", style="success"),
-            InlineKeyboardButton(text="⚠️ Warns", callback_data=f"gmod:warns:{uid}", style="primary"),
-        ])
-        rows.append([
-            InlineKeyboardButton(text="Mute", callback_data=f"gmod:mute:{uid}", style="danger"),
-            InlineKeyboardButton(text="🚫 Ban", callback_data=f"gmod:ban:{uid}", style="danger"),
+            _btn("Ban again", f"gmod:ban:{uid}", "danger", pe_id("ban")),
         ])
     elif action == "kick":
         rows.append([
-            InlineKeyboardButton(text="🚫 Ban", callback_data=f"gmod:ban:{uid}", style="danger"),
-            InlineKeyboardButton(text="✅ Unban", callback_data=f"gmod:unban:{uid}", style="success"),
+            _btn("Ban", f"gmod:ban:{uid}", "danger", pe_id("ban")),
         ])
-    else:
+    elif action == "warn":
         rows.append([
-            InlineKeyboardButton(text="Mute", callback_data=f"gmod:mute:{uid}", style="danger"),
-            InlineKeyboardButton(text="🚫 Ban", callback_data=f"gmod:ban:{uid}", style="danger"),
+            _btn("Warns", f"gmod:warns:{uid}", "primary", pe_id("warn")),
+            _btn("Mute", f"gmod:mute:{uid}", "danger", pe_id("mute")),
+            _btn("Ban", f"gmod:ban:{uid}", "danger", pe_id("ban")),
         ])
     rows.append([
-        InlineKeyboardButton(text="❓ Help", callback_data="ghelp:home", style="primary"),
-        InlineKeyboardButton(text="❌ Close", callback_data="ghelp:close", style="danger"),
+        _btn("Help", "ghelp:home", "primary", pe_id("help")),
+        _btn("Close", "ghelp:close", "danger", pe_id("cross")),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 
 
 def _full_unmute_perms() -> ChatPermissions:

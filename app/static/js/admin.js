@@ -1906,25 +1906,50 @@ async function doChannelBroadcast() {
 
 
 /* ---------- Bot message templates ---------- */
+let _premiumEmojiCache = null;
+
+async function loadPremiumEmojis() {
+  if (_premiumEmojiCache) return _premiumEmojiCache;
+  try {
+    const data = await api("/admin/premium-emojis");
+    _premiumEmojiCache = data.items || [];
+  } catch (e) {
+    _premiumEmojiCache = [];
+  }
+  return _premiumEmojiCache;
+}
+
+function previewTplText(val) {
+  if (!val) return "";
+  // Show fallback char from tg-emoji tags for readable preview
+  let s = String(val).replace(/<tg-emoji[^>]*>([^<]*)<\/tg-emoji>/gi, "$1");
+  s = s.replace(/<[^>]+>/g, "");
+  return s.slice(0, 140) + (s.length > 140 ? "…" : "");
+}
+
 async function renderMessages() {
-  document.getElementById("topbarActions").innerHTML = "";
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-outline btn-sm" onclick="resetAllMsgTpl()">Reset all to premium defaults</button>
+  `;
   const data = await api("/admin/message-templates");
   const items = data.items || [];
   document.getElementById("content").innerHTML = `
     <div class="card anim-fade">
       <h3 style="margin-top:0">Bot response messages</h3>
-      <p class="muted">Edit any bot reply. HTML allowed. Custom emoji packs:
-        <code>&lt;tg-emoji emoji-id="ID"&gt;⭐&lt;/tg-emoji&gt;</code>
-        — get ID via Telegram <code>/eid</code> (reply to pack emoji).
-        Placeholders depend on message (e.g. {name} {reward} {title} {reason}).</p>
+      <p class="muted">
+        Premium custom emoji only (Telegram). Use the editor picker — do not paste normal emoji alone.
+        Correct format (one line): <code>&lt;tg-emoji emoji-id="123456"&gt;✅&lt;/tg-emoji&gt;</code>
+        <br>Get extra IDs in Telegram: reply to a pack emoji with <code>/eid</code>
+        · Placeholders: {name} {reward} {title} {reason} {balance} etc.
+      </p>
       <div class="table-wrap"><table class="table"><thead><tr>
         <th>Message</th><th>Preview</th><th></th>
       </tr></thead><tbody>
         ${items.map(it => `
           <tr>
             <td><b>${escapeHtml(it.label)}</b><br><code style="font-size:0.75rem">${escapeHtml(it.key)}</code>
-              ${it.is_default ? '<span class="muted"> · default</span>' : ''}</td>
-            <td style="max-width:280px;font-size:0.85rem;white-space:pre-wrap">${escapeHtml((it.value||"").slice(0,120))}${(it.value||"").length>120?"…":""}</td>
+              ${it.is_default ? '<span class="muted"> · default</span>' : '<span class="muted"> · custom</span>'}</td>
+            <td style="max-width:280px;font-size:0.85rem;white-space:pre-wrap">${escapeHtml(previewTplText(it.value||""))}</td>
             <td>
               <button class="btn btn-sm btn-primary" onclick="editMsgTpl('${it.key}')">Edit</button>
               <button class="btn btn-sm btn-outline" onclick="resetMsgTpl('${it.key}')">Reset</button>
@@ -1938,33 +1963,73 @@ async function editMsgTpl(key) {
   const data = await api("/admin/message-templates");
   const it = (data.items || []).find(x => x.key === key);
   if (!it) return;
+  const emojis = await loadPremiumEmojis();
+  const chips = emojis.map(e =>
+    `<button type="button" class="btn btn-sm btn-outline" style="margin:2px"
+      title="${escapeHtml(e.key)} · ${escapeHtml(e.emoji_id)}"
+      onclick="insertPremiumEmoji('${e.emoji_id}','${escapeHtml(e.fallback)}')">${escapeHtml(e.fallback)} ${escapeHtml(e.key)}</button>`
+  ).join("");
   openModal("Edit: " + it.label, `
-    <p class="muted" style="font-size:0.8rem">Key: <code>${escapeHtml(key)}</code></p>
+    <p class="muted" style="font-size:0.8rem">Key: <code>${escapeHtml(key)}</code>
+      · Tag must stay on <b>one line</b>. No line-break inside &lt;tg-emoji…&gt;</p>
     <div class="form-group">
-      <label>Message (HTML + custom emoji)</label>
-      <textarea id="msgTplValue" rows="12" style="font-family:monospace;font-size:0.85rem">${escapeHtml(it.value || "")}</textarea>
+      <label>Insert premium emoji</label>
+      <div style="max-height:120px;overflow:auto;border:1px solid var(--border,#333);padding:6px;border-radius:8px">${chips || "<span class=muted>No catalog</span>"}</div>
     </div>
+    <div class="form-group">
+      <label>Message (HTML + tg-emoji)</label>
+      <textarea id="msgTplValue" rows="12" style="font-family:ui-monospace,monospace;font-size:0.85rem">${escapeHtml(it.value || "")}</textarea>
+    </div>
+    <p class="muted" style="font-size:0.75rem">Example: &lt;tg-emoji emoji-id="5920052658743283381"&gt;✅&lt;/tg-emoji&gt; <b>Approved</b></p>
   `, `
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="saveMsgTpl('${key}')">Save</button>
   `);
 }
 
+function insertPremiumEmoji(emojiId, fallback) {
+  const ta = document.getElementById("msgTplValue");
+  if (!ta) return;
+  const tag = `<tg-emoji emoji-id="${emojiId}">${fallback || "⭐"}</tg-emoji> `;
+  const start = ta.selectionStart || 0;
+  const end = ta.selectionEnd || 0;
+  const v = ta.value;
+  ta.value = v.slice(0, start) + tag + v.slice(end);
+  const pos = start + tag.length;
+  ta.focus();
+  ta.setSelectionRange(pos, pos);
+}
+
 async function saveMsgTpl(key) {
-  const value = document.getElementById("msgTplValue").value;
+  let value = document.getElementById("msgTplValue").value;
+  // Client-side quick normalize: collapse whitespace inside opening tg-emoji tags
+  value = value.replace(/<\s*tg\s*-\s*emoji([^>]*)>/gi, (m, inner) => {
+    const id = (inner.match(/emoji\s*-?\s*id\s*=\s*["']?(\d+)/i) || [])[1];
+    if (!id) return m;
+    return `<tg-emoji emoji-id="${id}">`;
+  });
   try {
     await api(`/admin/message-templates/${key}`, { method: "PUT", body: { value } });
-    toast("Saved");
+    toast("Saved — premium emoji tags normalized");
     closeModal();
     renderMessages();
   } catch (e) { toast(e.message, "error"); }
 }
 
 async function resetMsgTpl(key) {
-  if (!confirm("Reset to default text?")) return;
+  if (!confirm("Reset this message to premium-emoji default?")) return;
   try {
     await api(`/admin/message-templates/${key}/reset`, { method: "POST" });
     toast("Reset");
+    renderMessages();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function resetAllMsgTpl() {
+  if (!confirm("Reset ALL bot messages to premium-emoji defaults? Custom edits will be lost.")) return;
+  try {
+    await api("/admin/message-templates/reset-all", { method: "POST" });
+    toast("All messages reset");
     renderMessages();
   } catch (e) { toast(e.message, "error"); }
 }

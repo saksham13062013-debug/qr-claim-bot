@@ -139,7 +139,7 @@ def _ik_btn(cfg: dict, key: str, **extra) -> InlineKeyboardButton:
         "text": key,
         "style": "primary",
     }
-    text = str(b.get("text") or key)[:64]
+    text = btn_cfg.strip_button_emoji(str(b.get("text") or key)[:64])
     style = b.get("style") or "primary"
     icon = b.get("icon")
     kwargs = {"text": text, **extra}
@@ -197,7 +197,7 @@ def nav_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
             ],
             [
                 _ik_btn(c, "help", callback_data="menu:help"),
-                InlineKeyboardButton(text="🏠 Home", callback_data="menu:home", style="primary"),
+                InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
             ],
         ]
     )
@@ -247,14 +247,14 @@ def claim_flow_kb(code: str, payment_link: str | None = None, cfg: dict | None =
     rows = []
     if payment_link:
         rows.append([
-            InlineKeyboardButton(text="🔗 Open Link", url=payment_link, style="primary")
+            InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")
         ])
     rows.append([
         _ik_btn(c, "submit_claim", callback_data=f"submit_claim:{code}"),
     ])
     rows.append([
         _ik_btn(c, "cancel", callback_data="cancel_claim"),
-        InlineKeyboardButton(text="🏠 Home", callback_data="menu:home", style="primary"),
+        InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -264,7 +264,7 @@ def notify_claim_kb(code: str, payment_link: str | None = None, cfg: dict | None
     c = cfg or btn_cfg.DEFAULT_BUTTONS
     rows = []
     if payment_link:
-        rows.append([InlineKeyboardButton(text="🔗 Open Link", url=payment_link, style="primary")])
+        rows.append([InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")])
     rows.append([_ik_btn(c, "claim_qr", callback_data=f"claim:{code}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -296,7 +296,7 @@ def withdraw_cancel_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="❌ Cancel",
+                    text="Cancel",
                     callback_data="payout:cancel",
                     style="danger",  # red
                 )
@@ -471,12 +471,12 @@ async def _send_already_claimed(
     buttons.append(
         [
             InlineKeyboardButton(
-                text="💼 Balance",
+                text="Balance",
                 callback_data="menu:balance",
                 style="primary",
             ),
             InlineKeyboardButton(
-                text="❓ Help",
+                text="Help",
                 callback_data="menu:help",
                 style="primary",
             ),
@@ -805,12 +805,12 @@ async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="💸 Withdraw",
+                        text="Withdraw",
                         callback_data="menu:withdraw",
                         style="success",
                     ),
                     InlineKeyboardButton(
-                        text="📜 History",
+                        text="History",
                         callback_data="menu:history",
                         style="primary",
                     ),
@@ -1104,7 +1104,7 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="❌ Cancel",
+                        text="Cancel",
                         callback_data="support:cancel",
                         style="danger",
                     )

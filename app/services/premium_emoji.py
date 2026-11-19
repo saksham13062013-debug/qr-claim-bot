@@ -1,27 +1,27 @@
-"""Telegram custom emoji helpers — different emoji-id per meaning.
+"""Telegram custom emoji helpers — distinct emoji-id per meaning.
 
-IDs from public bot-icon catalogs (TgAndroid / status packs).
-If an ID does not render for your bot, replace via /eid.
-Fallback unicode always inside the tag.
+IDs from public bot-icon catalogs (TgAndroid / status / vector packs).
+Fallback unicode is always inside the tag if an id does not render.
+Override any id via admin /eid + Bot Messages.
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-# key -> (custom_emoji_id, unicode_fallback)  — UNIQUE ids per key
+# key -> (custom_emoji_id, unicode_fallback)
 EMOJI_IDS: dict[str, tuple[str, str]] = {
     "star": ("5874948844935974490", "⭐"),
     "check": ("5920052658743283381", "✅"),
     "cross": ("5258226313285607065", "❌"),
     "warn": ("5258474669769497337", "⚠️"),
-    "fire": ("5843553939672274145", "🔥"),  # lightning style as fire/energy
-    "money": ("5807465992363710697", "💰"),  # diamond as value (catalog money often same packs)
+    "fire": ("5843553939672274145", "🔥"),
+    "money": ("5807465992363710697", "💰"),
     "wallet": ("5807465992363710697", "💼"),
     "gift": ("5874948844935974490", "🎁"),
     "bell": ("5258503720928288433", "🔔"),
     "lock": ("5258476306152038031", "🔒"),
-    "key": ("5258514780469075716", "🔑"),  # unlock id used as key
+    "key": ("5258514780469075716", "🔑"),
     "link": ("5260730055880876557", "🔗"),
     "user": ("5258362837411045098", "👤"),
     "users": ("5258362837411045098", "👥"),
@@ -58,6 +58,14 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "heart": ("5874948844935974490", "❤️"),
     "back": ("5877536313623711363", "⬅️"),
     "refresh": ("5260687119092817530", "🔄"),
+    "shield": ("5258476306152038031", "🛡"),
+    "tools": ("5258420634785947640", "🛠"),
+    "note": ("5258477770735885832", "📒"),
+    "plug": ("5260730055880876557", "🔌"),
+    "info": ("5258503720928288433", "ℹ️"),
+    "rules": ("5258477770735885832", "📜"),
+    "crown": ("5807868868886009920", "👑"),
+    "megaphone": ("5258503720928288433", "📢"),
 }
 
 

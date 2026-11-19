@@ -8,6 +8,7 @@ on the message is stored as icon_custom_emoji_id (Bot API).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,22 +17,45 @@ from app.services.settings_service import get_setting, set_setting
 
 SETTING_KEY = "bot_button_config"
 
+# Unicode emoji ranges commonly used in old button labels
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F9FF"  # misc symbols & pictographs + supplemental
+    "\U00002600-\U000027BF"  # misc symbols
+    "\U0001FA00-\U0001FAFF"  # extended-A
+    "\U0000200D"             # ZWJ
+    "\U0000FE0F"             # variation selector
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def strip_button_emoji(text: str) -> str:
+    """Remove normal Unicode emoji from button text (premium uses icon id only)."""
+    if not text:
+        return text or ""
+    cleaned = _EMOJI_RE.sub("", text)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ·-|")
+    return cleaned.strip() or text.strip()
+
+
+
 # key -> default label, style, icon_custom_emoji_id
 DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
-    "how_to_claim": {"text": "📖 How to Claim", "style": "primary", "icon": "5258503720928288433"},
-    "balance": {"text": "💼 Balance", "style": "primary", "icon": "5807465992363710697"},
-    "my_claims": {"text": "📋 My Claims", "style": "primary", "icon": "5258477770735885832"},
-    "withdraw": {"text": "💸 Withdraw", "style": "success", "icon": "5807465992363710697"},
-    "history": {"text": "📜 History", "style": "primary", "icon": "5260687119092817530"},
-    "support": {"text": "🆘 Support", "style": "danger", "icon": "5258503720928288433"},
-    "help": {"text": "❓ Help", "style": "primary", "icon": "5258503720928288433"},
-    "claim_qr": {"text": "✅ CLAIM QR", "style": "success", "icon": "5843553939672274145"},
-    "submit_claim": {"text": "📤 Submit Claim", "style": "success", "icon": "5920052658743283381"},
-    "cancel": {"text": "❌ Cancel", "style": "danger", "icon": "5258226313285607065"},
-    "check_join": {"text": "✅ I Joined – Check Again", "style": "success", "icon": "5920052658743283381"},
-    "upi": {"text": "🇮🇳 UPI ID", "style": "success", "icon": "5807465992363710697"},
-    "binance": {"text": "🟡 Binance ID", "style": "success", "icon": "5807465992363710697"},
-    "view_balance": {"text": "💼 View Balance", "style": "primary", "icon": "5807465992363710697"},
+    "how_to_claim": {"text": "How to Claim", "style": "primary", "icon": "5258503720928288433"},
+    "balance": {"text": "Balance", "style": "primary", "icon": "5807465992363710697"},
+    "my_claims": {"text": "My Claims", "style": "primary", "icon": "5258477770735885832"},
+    "withdraw": {"text": "Withdraw", "style": "success", "icon": "5807465992363710697"},
+    "history": {"text": "History", "style": "primary", "icon": "5260687119092817530"},
+    "support": {"text": "Support", "style": "danger", "icon": "5258503720928288433"},
+    "help": {"text": "Help", "style": "primary", "icon": "5258503720928288433"},
+    "claim_qr": {"text": "CLAIM QR", "style": "success", "icon": "5843553939672274145"},
+    "submit_claim": {"text": "Submit Claim", "style": "success", "icon": "5920052658743283381"},
+    "cancel": {"text": "Cancel", "style": "danger", "icon": "5258226313285607065"},
+    "check_join": {"text": "I Joined – Check Again", "style": "success", "icon": "5920052658743283381"},
+    "upi": {"text": "UPI ID", "style": "success", "icon": "5807465992363710697"},
+    "binance": {"text": "Binance ID", "style": "success", "icon": "5807465992363710697"},
+    "view_balance": {"text": "View Balance", "style": "primary", "icon": "5807465992363710697"},
 }
 
 BUTTON_LABELS_HUMAN: dict[str, str] = {
@@ -64,7 +88,7 @@ async def get_all_buttons(session: AsyncSession) -> dict[str, dict[str, Any]]:
     for key, default in DEFAULT_BUTTONS.items():
         cur = data.get(key) or {}
         out[key] = {
-            "text": (cur.get("text") or default["text"])[:64],
+            "text": strip_button_emoji((cur.get("text") or default["text"])[:64]),
             "style": cur.get("style") or default["style"],
             "icon": cur.get("icon") or default.get("icon"),
         }
@@ -89,7 +113,7 @@ async def save_button(
         raise ValueError("UNKNOWN_BUTTON")
     all_b = await get_all_buttons(session)
     entry = all_b[key]
-    entry["text"] = (text or entry["text"])[:64]
+    entry["text"] = strip_button_emoji((text or entry["text"])[:64])
     if icon is not None:
         entry["icon"] = icon or None
     if style:
