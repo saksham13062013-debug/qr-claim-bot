@@ -916,6 +916,15 @@ async def cmd_ban(message: Message, bot: Bot):
             await _log_ban(_cid(message), uid, message.from_user.id if message.from_user else None)
         except Exception:
             pass
+        try:
+            from app.services.activity_log import log_event
+            await log_event(
+                bot,
+                "GROUP_BAN",
+                f"Chat <code>{_cid(message)}</code>\nTarget {mention} (<code>{uid}</code>)\nBy <code>{message.from_user.id if message.from_user else 0}</code>\nReason: {reason}",
+            )
+        except Exception:
+            pass
         await message.reply(
             f"{pe('ban')} <b>Banned</b> {mention}\n"
             f"{pe('doc')} Reason: {reason}",
@@ -2695,31 +2704,6 @@ async def cmd_staff(message: Message, bot: Bot):
         un = f"@{u.username}" if u.username else u.full_name
         lines.append(f"• {un} · <code>{u.id}</code> · {tag}")
     await message.reply("\n".join(lines) or "No staff.", parse_mode=ParseMode.HTML, reply_markup=ok_kb())
-
-
-@router.message(Command("slowmode"))
-async def cmd_slowmode(message: Message, bot: Bot):
-    if not await require_admin(message, bot):
-        return
-    chat_id = _resolve_target_chat_id(message) or _cid(message)
-    parts = (message.text or "").split()
-    await _typing(bot, _cid(message))
-    if len(parts) < 2 or not parts[1].isdigit():
-        await message.reply("Usage: <code>/slowmode 10</code> (0 = off)", parse_mode=ParseMode.HTML)
-        return
-    sec = min(int(parts[1]), 3600)
-    try:
-        await bot.set_chat_slow_mode_delay(chat_id, sec)
-        async with get_db_context() as session:
-            s = await get_or_create_settings(session, chat_id)
-            s.slowmode_seconds = sec
-        await message.reply(
-            f"⏱ Slow mode: <b>{sec}s</b>" if sec else "⏱ Slow mode off.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=ok_kb(),
-        )
-    except Exception as e:
-        await message.reply(f"Failed: {e}")
 
 
 @router.message(Command("invitelink"))

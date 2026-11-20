@@ -938,6 +938,21 @@ async def reject_withdrawal(
         await session.commit()
     except ValueError as e:
         raise HTTPException(400, str(e))
+    try:
+        from app.services.activity_log import log_withdraw
+        from app.bot import get_bot
+        u = getattr(w, "user", None)
+        await log_withdraw(
+            "WITHDRAW_REJECTED",
+            telegram_id=getattr(u, "telegram_id", None),
+            username=getattr(u, "username", None),
+            amount=f"${(w.amount_cents or 0)/100:.2f}",
+            method=getattr(w, "payout_method", "") or "",
+            reason=body.reason or "",
+            bot=get_bot(),
+        )
+    except Exception:
+        pass
     return {"ok": True, "status": w.status.value}
 
 

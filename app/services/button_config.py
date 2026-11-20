@@ -49,7 +49,15 @@ DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "view_balance": {"text": "View Balance", "style": "primary", "icon": "5807465992363710697"},
     "home": {"text": "Home", "style": "primary", "icon": "5807868868886009920"},
     "open_link": {"text": "Open Link", "style": "primary", "icon": "5260730055880876557"},
+    "group_help": {"text": "Group Help", "style": "primary", "icon": "5258503720928288433"},
+    "unmute": {"text": "Unmute", "style": "success", "icon": "5920052658743283381"},
+    "unban": {"text": "Unban", "style": "success", "icon": "5920052658743283381"},
+    "unlock": {"text": "Unlock", "style": "success", "icon": "5920052658743283381"},
+    "unwarn": {"text": "Remove Warn", "style": "success", "icon": "5920052658743283381"},
+    "rules": {"text": "Rules", "style": "primary", "icon": "5258477770735885832"},
+    "admins_list": {"text": "Admins", "style": "primary", "icon": "5258362837411045098"},
 }
+
 
 BUTTON_LABELS_HUMAN: dict[str, str] = {
     "how_to_claim": "How to Claim (menu)",
@@ -68,7 +76,15 @@ BUTTON_LABELS_HUMAN: dict[str, str] = {
     "view_balance": "View Balance (inline)",
     "home": "Home (inline)",
     "open_link": "Open Link (inline)",
+    "group_help": "Group Help",
+    "unmute": "Unmute (group)",
+    "unban": "Unban (group)",
+    "unlock": "Unlock (group)",
+    "unwarn": "Remove warn (group)",
+    "rules": "Rules (group)",
+    "admins_list": "Admins list (group)",
 }
+
 
 
 async def _raw_store(session: AsyncSession) -> dict[str, Any]:

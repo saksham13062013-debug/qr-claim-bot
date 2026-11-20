@@ -2181,7 +2181,7 @@ async function renderGroups() {
         <button class="btn btn-sm btn-outline" onclick="groupUserAction(${g.chat_id})">Users</button> <button class="btn btn-sm btn-outline" onclick="editGroup(${g.chat_id}, ${g.dm_on_join}, ${JSON.stringify(g.dm_on_join_text || "").replace(/"/g, '&quot;')}, ${g.welcome_enabled}, ${g.warn_limit})">Edit</button>
       </td>
     </tr>`).join("");
-  app.innerHTML = `
+  document.getElementById("content").innerHTML = `
     <div class="toolbar">
       <span style="color:var(--muted);font-size:0.85rem">
         Groups the bot has settings for. Use Telegram <code>/grouphelp</code> for full moderation.

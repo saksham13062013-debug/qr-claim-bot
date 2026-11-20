@@ -41,10 +41,10 @@ settings = get_settings()
 
 # User bot (claim / wallet / menu) — PRIVATE chats only
 router = Router(name="user_bot")
-router.message.filter(F.chat.type == "private")
+router.message.filter(F.chat.type == ChatType.PRIVATE)
 # Allow callbacks even if message is missing chat type edge-cases
 router.callback_query.filter(
-    (F.message.chat.type == "private") | (F.message.chat.type == ChatType.PRIVATE)
+    (F.message.chat.type == ChatType.PRIVATE) | (F.message.chat.type == ChatType.PRIVATE)
 )
 
 # Group: ignore user menu; optional soft redirect for /start
@@ -684,6 +684,18 @@ async def cmd_start(message: Message, bot: Bot):
             except Exception:
                 logger.exception("force join check failed on /start")
 
+            try:
+                from app.services.activity_log import log_user
+                await log_user(
+                    "USER_START",
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    name=message.from_user.first_name,
+                    bot=bot,
+                )
+            except Exception:
+                pass
+
             # Always use Bot Messages templates (admin panel edits apply here)
             body = await msg_tpl.get_template(session, "msg_welcome_body")
             text = await msg_tpl.get_rendered(
@@ -749,7 +761,7 @@ async def cmd_start(message: Message, bot: Bot):
 # ---------------------------------------------------------------------------
 
 
-@router.message(F.chat.type == "private", F.text)
+@router.message(F.chat.type == ChatType.PRIVATE, F.text)
 async def menu_label_dispatcher(message: Message, state: FSMContext, bot: Bot):
     """Match customized reply-keyboard labels (private only; never swallow commands)."""
     if await state.get_state():
@@ -831,7 +843,7 @@ async def menu_home_cb(callback: CallbackQuery, bot: Bot):
         pass
 
 
-@router.message(F.text.in_({"How to Claim", "📖 How to Claim"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"How to Claim", "📖 How to Claim"}))
 @router.callback_query(F.data == "menu:help")
 async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
     cfg = await load_btn_cfg()
@@ -844,7 +856,7 @@ async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
         await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb(cfg))
 
 
-@router.message(F.text.in_({"Balance", "Wallet", "💼 Balance"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Balance", "Wallet", "💼 Balance"}))
 @router.callback_query(F.data == "menu:balance")
 async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
     user_obj = event.from_user if isinstance(event, CallbackQuery) else event.from_user
@@ -888,7 +900,7 @@ async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
             await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.message(F.text.in_({"History", "Transaction History", "📜 History"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"History", "Transaction History", "📜 History"}))
 @router.callback_query(F.data == "menu:history")
 async def tx_history(event: Message | CallbackQuery, bot: Bot):
     user_obj = event.from_user
@@ -920,7 +932,7 @@ async def tx_history(event: Message | CallbackQuery, bot: Bot):
         await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
 
 
-@router.message(F.text.in_({"My Claims", "📋 My Claims"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"My Claims", "📋 My Claims"}))
 @router.callback_query(F.data == "menu:claims")
 async def my_claims(event: Message | CallbackQuery, bot: Bot):
     from sqlalchemy import select
@@ -959,7 +971,7 @@ async def my_claims(event: Message | CallbackQuery, bot: Bot):
         await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
 
 
-@router.message(F.text.in_({"Help", "❓ Help"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Help", "❓ Help"}))
 async def help_cmd(message: Message, bot: Bot):
     await message.answer(
         "<b>Help</b>\n\n"
@@ -979,7 +991,7 @@ async def help_cmd(message: Message, bot: Bot):
 # Withdraw: amount → UPI / Binance → details
 # ---------------------------------------------------------------------------
 
-@router.message(F.text.in_({"Withdraw", "💸 Withdraw"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Withdraw", "💸 Withdraw"}))
 @router.callback_query(F.data == "menu:withdraw")
 async def withdraw_start(event: Message | CallbackQuery, state: FSMContext, bot: Bot):
     user_obj = event.from_user
@@ -1156,7 +1168,7 @@ async def withdraw_payout_details(message: Message, state: FSMContext, bot: Bot)
 # Support
 # ---------------------------------------------------------------------------
 
-@router.message(F.text.in_({"Support", "🆘 Support"}))
+@router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Support", "🆘 Support"}))
 @router.message(Command("support"))
 async def support_start(message: Message, state: FSMContext, bot: Bot):
     await state.set_state(SupportStates.waiting_message)
@@ -1361,6 +1373,19 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                             reply_markup=force_join_kb(missing, await load_btn_cfg()),
                         )
                         return
+            # Log claim attempt
+            try:
+                from app.services.activity_log import log_claim
+                await log_claim(
+                    "CLAIM_TRY",
+                    telegram_id=user.id,
+                    username=user.username,
+                    code=code,
+                    bot=bot,
+                )
+            except Exception:
+                pass
+
             # Block already-taken / closed QRs before any image is sent
             qr_chk = await qr_service.get_qr_by_code(session, code)
             if not qr_chk:
@@ -1375,6 +1400,17 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
             st = qr_chk.status.value if hasattr(qr_chk.status, "value") else str(qr_chk.status)
             if st in ("CLAIMED", "PENDING", "APPROVED"):
                 await finish()
+                try:
+                    from app.services.activity_log import log_claim
+                    await log_claim(
+                        "CLAIM_ALREADY_TAKEN",
+                        telegram_id=user.id,
+                        username=user.username,
+                        code=code,
+                        bot=bot,
+                    )
+                except Exception:
+                    pass
                 target = callback.message or callback
                 await _send_already_claimed(target, bot, code, session=session, qr=qr_chk)
                 return
@@ -1476,6 +1512,20 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
                         title=title_line,
                         reward=cents_to_usd(qr.reward_cents),
                     )
+                
+                try:
+                    from app.services.activity_log import log_claim
+                    await log_claim(
+                        "CLAIM_SUBMITTED",
+                        telegram_id=user.id,
+                        username=user.username,
+                        code=code,
+                        reward=cents_to_usd(qr.reward_cents) if qr else "",
+                        title=title_line if "title_line" in dir() else code,
+                        bot=bot,
+                    )
+                except Exception:
+                    pass
                 await finish()
                 if callback.message:
                     try:
@@ -1801,14 +1851,15 @@ async def start_bot() -> None:
         logger.exception("Failed to load Telegram admin panel router")
 
     _dp.include_router(group_guard)
-    _dp.include_router(router)
+    # Group mod BEFORE user router so /ban /mute /grouphelp are not shadowed
     try:
         from app.group_mod import router as group_router
 
         _dp.include_router(group_router)
-        logger.info("Group moderation router loaded")
+        logger.info("Group moderation router loaded (before user router)")
     except Exception:
         logger.exception("Failed to load group moderation router")
+    _dp.include_router(router)
     set_bot(_bot)
 
     me = await _bot.get_me()
