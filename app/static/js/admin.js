@@ -2009,10 +2009,10 @@ async function saveMsgTpl(key) {
     return `<tg-emoji emoji-id="${id}">`;
   });
   try {
-    await api(`/admin/message-templates/${key}`, { method: "PUT", body: { value } });
-    toast("Saved — premium emoji tags normalized");
+    const res = await api(`/admin/message-templates/${key}`, { method: "PUT", body: { value } });
+    toast("Saved — bot will use this on next /start");
     closeModal();
-    renderMessages();
+    await renderMessages();
   } catch (e) { toast(e.message, "error"); }
 }
 

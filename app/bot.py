@@ -484,12 +484,30 @@ async def _send_already_claimed(
     )
     claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    text = (
-        "<b>Already claimed</b>\n\n"
-        f"This reward was claimed by {claimer_line}.\n"
-        "Each QR can be claimed by only one user.\n\n"
-        "Watch this chat for the next available reward."
-    )
+    # Prefer admin-editable template; never attach QR image
+    try:
+        if session is not None:
+            text = await msg_tpl.get_rendered(
+                session,
+                "msg_already_claimed",
+                code=code_u,
+                claimer=claimer_line,
+            )
+        else:
+            async with get_db_context() as sess:
+                text = await msg_tpl.get_rendered(
+                    sess,
+                    "msg_already_claimed",
+                    code=code_u,
+                    claimer=claimer_line,
+                )
+    except Exception:
+        text = (
+            f"<b>Already claimed</b>\n\n"
+            f"Claimed by: {claimer_line}\n"
+            f"Code: <code>{code_u}</code>\n\n"
+            f"Only one user can claim each QR."
+        )
     try:
         if hasattr(target, "answer"):
             await target.answer(
@@ -503,18 +521,21 @@ async def _send_already_claimed(
                 reply_markup=claimer_kb,
             )
     except Exception:
-        # Fallback without HTML if Telegram rejects entities
         plain = (
-            "Already claimed\n\n"
-            f"This QR was claimed by {getattr(claimer, 'username', None) and '@' + claimer.username or (claimer.first_name if claimer else 'another user')}.\n"
-            "Each QR can only be claimed once."
+            f"Already claimed\n\n"
+            f"Claimed by: {getattr(claimer, 'username', None) and '@' + claimer.username or (claimer.first_name if claimer else 'another user')}\n"
+            f"Code: {code_u}\n"
+            f"Each QR can only be claimed once."
         )
-        if hasattr(target, "answer"):
-            await target.answer(plain, reply_markup=claimer_kb)
-        else:
-            await bot.send_message(
-                chat_id=target.chat.id, text=plain, reply_markup=claimer_kb
-            )
+        try:
+            if hasattr(target, "answer"):
+                await target.answer(plain, reply_markup=claimer_kb)
+            else:
+                await bot.send_message(
+                    chat_id=target.chat.id, text=plain, reply_markup=claimer_kb
+                )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -622,10 +643,8 @@ async def cmd_start(message: Message, bot: Bot):
             except Exception:
                 logger.exception("force join check failed on /start")
 
-            welcome = await settings_service.get_setting(session, "bot_welcome_message")
-            if not welcome:
-                welcome = settings.bot_welcome_message
-            body = welcome or await msg_tpl.get_template(session, "msg_welcome_body")
+            # Always use Bot Messages templates (admin panel edits apply here)
+            body = await msg_tpl.get_template(session, "msg_welcome_body")
             text = await msg_tpl.get_rendered(
                 session, "msg_welcome", name=name, welcome_body=body
             )
@@ -1173,7 +1192,10 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
             return
         if qr.status.value in ("DISABLED", "EXPIRED", "REJECTED"):
             await target.answer(
-                f"This QR is not available ({qr.status.value}).",
+                f"{pe('pause')} <b>QR not available</b>\n"
+                f"Status: <code>{qr.status.value}</code>\n\n"
+                f"This task cannot be claimed.",
+                parse_mode=ParseMode.HTML,
                 reply_markup=nav_kb(),
             )
             return
@@ -1184,15 +1206,22 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
         if qr.expires_at:
             exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
         pay_link = (getattr(qr, "payment_link", None) or "").strip()
-        link_line = f"🔗 Link: {pay_link}\n" if pay_link else ""
-        caption = (
-            f"{pe('new')} <b>New task #{qr.id}</b> · {app_label}\n"
-            f"{pe('money')} Your reward: <b>{reward}</b>\n"
-            f"Expires: {exp_line}\n"
-            f"Claim before opening the payment link.\n\n"
-            f"{link_line}"
-            f"Code: <code>{qr.code}</code>\n"
-            f"Tap <b>Submit Claim</b> after you scan."
+        # link_line only if URL present — admin template uses {link_line}
+        if pay_link:
+            link_line = f"Link: {pay_link}\n"
+        else:
+            link_line = ""
+        # Use ONLY admin-saved template (no hardcoded pe() append — that overwrote custom emoji)
+        caption = await msg_tpl.get_rendered(
+            session,
+            "msg_new_task_caption",
+            id=qr.id,
+            app=app_label,
+            reward=reward,
+            expires=exp_line,
+            code=qr.code,
+            link=pay_link,
+            link_line=link_line,
         )
         if qr.image_png:
             png = qr.image_png
@@ -1278,15 +1307,40 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                     )
                     if not all_ok:
                         await finish()
+                        fj = await msg_tpl.get_template(session, "msg_force_join")
                         await bot.send_message(
                             chat_id,
-                            "<b>Join required channels</b>\n\n"
-                            "Join the channels below, then tap "
-                            "<b>I Joined – Check Again</b>.",
+                            fj,
                             parse_mode=ParseMode.HTML,
                             reply_markup=force_join_kb(missing),
                         )
                         return
+            # Block already-taken / closed QRs before any image is sent
+            qr_chk = await qr_service.get_qr_by_code(session, code)
+            if not qr_chk:
+                await finish()
+                await bot.send_message(
+                    chat_id,
+                    f"{pe('cross')} <b>Invalid QR</b>\nThis code is unknown or removed.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
+                )
+                return
+            st = qr_chk.status.value if hasattr(qr_chk.status, "value") else str(qr_chk.status)
+            if st in ("CLAIMED", "PENDING", "APPROVED"):
+                await finish()
+                target = callback.message or callback
+                await _send_already_claimed(target, bot, code, session=session, qr=qr_chk)
+                return
+            if st in ("DISABLED", "EXPIRED", "REJECTED"):
+                await finish()
+                await bot.send_message(
+                    chat_id,
+                    f"{pe('pause')} <b>QR not available</b>\nStatus: <code>{st}</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
+                )
+                return
         await finish()
         target = callback.message or callback
         await _send_claim_preview(target, bot, code)
@@ -1476,16 +1530,16 @@ async def check_membership_cb(callback: CallbackQuery, bot: Bot):
         all_ok, missing = await force_join_service.check_membership(
             bot, callback.from_user.id, channels
         )
-        welcome = await settings_service.get_setting(session, "bot_welcome_message")
-        if not welcome:
-            welcome = settings.bot_welcome_message
-    if all_ok:
         name = callback.from_user.first_name or "there"
+        if all_ok:
+            body = await msg_tpl.get_template(session, "msg_welcome_body")
+            verified = await msg_tpl.get_rendered(
+                session, "msg_force_join_ok", name=name, welcome_body=body
+            )
+        else:
+            verified = None
+    if all_ok:
         cfg = await load_btn_cfg()
-        verified = (
-            f"{pe('check')} <b>Verified</b> · Welcome, {name}!\n\n"
-            f"{welcome or 'You can use the bot now.'}"
-        )
         try:
             await callback.message.edit_text(verified, parse_mode=ParseMode.HTML)
         except Exception:

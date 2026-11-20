@@ -44,6 +44,7 @@ def _settings():
 
 class AdminFSM(StatesGroup):
     btn_edit_key = State()
+    msg_edit_key = State()
     broadcast_text = State()
     reject_reason = State()
     reject_claim_id = State()
@@ -137,6 +138,9 @@ def admin_home_kb() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="Button labels", callback_data="tga:btns", style="success"),
+                InlineKeyboardButton(text="Bot messages", callback_data="tga:msgs", style="success"),
+            ],
+            [
                 InlineKeyboardButton(text="Custom emoji", callback_data="tga:emoji", style="primary"),
                 InlineKeyboardButton(text="Close", callback_data="tga:close", style="danger"),
             ],
@@ -209,6 +213,20 @@ async def tga_router(callback: CallbackQuery, bot: Bot, state: FSMContext):
             await session.commit()
         await callback.answer("Buttons reset", show_alert=True)
         await show_button_labels(callback.message, state)
+        return
+    if raw.startswith("msgset:"):
+        key = raw.split(":", 1)[1]
+        await start_msg_edit(callback, state, key)
+        return
+    if raw == "msgreset":
+        from app.services import message_templates as msg_tpl
+        from app.services.settings_service import set_setting
+        async with get_db_context() as session:
+            await msg_tpl.reset_all_templates(session, admin_id=None)
+            await set_setting(session, "bot_welcome_message", "", admin_id=None)
+            await session.commit()
+        await callback.answer("All messages reset", show_alert=True)
+        await show_message_templates(callback.message, state)
         return
     action = raw
     await callback.answer()
@@ -289,6 +307,9 @@ async def tga_router(callback: CallbackQuery, bot: Bot, state: FSMContext):
         )
         return
 
+    if action == "msgs":
+        await show_message_templates(callback.message, state)
+        return
     if action == "btns":
         await show_button_labels(callback.message, state)
         return
@@ -1268,7 +1289,7 @@ async def btn_edit_receive(message: Message, state: FSMContext):
         await message.answer("Session expired.")
         return
     # Strip leading/trailing spaces; keep emoji characters in text
-    label = text[:64] if text else None
+    label = btn_cfg.strip_button_emoji(text[:64]) if text else None
     icon = btn_cfg.extract_custom_emoji_id(message)
     if not label:
         await message.answer("Send text for the button label.")
@@ -1293,3 +1314,121 @@ async def btn_edit_receive(message: Message, state: FSMContext):
         parse_mode=ParseMode.HTML,
         reply_markup=admin_home_kb(),
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Bot message templates (all responses editable from Telegram)
+# ---------------------------------------------------------------------------
+
+
+async def show_message_templates(message: Message, state: FSMContext | None = None):
+    from app.services import message_templates as msg_tpl
+
+    if state:
+        await state.clear()
+    async with get_db_context() as session:
+        items = await msg_tpl.list_templates(session)
+    lines = [
+        "<b>Bot message templates</b>",
+        "",
+        "Tap a message to rewrite it.",
+        "HTML allowed. Premium emoji:",
+        '<code>&lt;tg-emoji emoji-id="ID"&gt;✅&lt;/tg-emoji&gt;</code>',
+        "Get ID: /eid (reply to pack emoji)",
+        "",
+    ]
+    rows = []
+    for it in items:
+        flag = "default" if it.get("is_default") else "custom"
+        lines.append(f"• <b>{it['label']}</b> · <i>{flag}</i>")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=it["label"][:32],
+                    callback_data=f"tga:msgset:{it['key']}",
+                    style="primary",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(text="Reset all", callback_data="tga:msgreset", style="danger"),
+            InlineKeyboardButton(text="« Menu", callback_data="tga:home", style="primary"),
+        ]
+    )
+    text = "\n".join(lines)
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    try:
+        await message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    except Exception:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+async def start_msg_edit(callback: CallbackQuery, state: FSMContext, key: str):
+    from app.services import message_templates as msg_tpl
+
+    async with get_db_context() as session:
+        items = await msg_tpl.list_templates(session)
+    it = next((x for x in items if x["key"] == key), None)
+    if not it:
+        await callback.answer("Unknown message", show_alert=True)
+        return
+    await state.set_state(AdminFSM.msg_edit_key)
+    await state.update_data(msg_key=key)
+    await callback.answer()
+    preview = (it.get("value") or "")[:800]
+    await callback.message.answer(
+        f"<b>Editing:</b> {it['label']}\n"
+        f"Key: <code>{key}</code>\n\n"
+        f"<b>Current:</b>\n<code>{preview}</code>\n\n"
+        f"Send the <b>full new message</b> now (HTML + tg-emoji tags).\n"
+        f"Placeholders depend on message: {{name}} {{reward}} {{title}} {{reason}} {{claimer}} {{code}} …\n"
+        f"/cancel to abort.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=back_kb(),
+    )
+
+
+@router.message(AdminFSM.msg_edit_key)
+async def msg_edit_receive(message: Message, state: FSMContext):
+    from app.services import message_templates as msg_tpl
+
+    if not message.from_user or not await is_tg_admin(message.from_user.id):
+        return
+    text = (message.text or message.caption or "").strip()
+    if text.lower() in ("/cancel", "cancel"):
+        await state.clear()
+        await message.answer("Cancelled.", reply_markup=admin_home_kb())
+        return
+    data = await state.get_data()
+    key = data.get("msg_key")
+    if not key:
+        await state.clear()
+        await message.answer("Session expired.", reply_markup=admin_home_kb())
+        return
+    if not text:
+        await message.answer("Send the full message text.")
+        return
+    try:
+        async with get_db_context() as session:
+            await msg_tpl.save_template(session, key, text, admin_id=None)
+            if key in ("msg_welcome", "msg_welcome_body"):
+                from app.services.settings_service import set_setting
+                await set_setting(session, "bot_welcome_message", "", admin_id=None)
+            await session.commit()
+            saved = await msg_tpl.get_template(session, key)
+        await state.clear()
+        await message.answer(
+            f"<b>Message saved</b>\n"
+            f"Key: <code>{key}</code>\n"
+            f"Length: {len(saved)} chars\n\n"
+            f"Users will see this on the next relevant action (/start, claim, etc.).",
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_home_kb(),
+        )
+    except ValueError as e:
+        await message.answer(f"Save failed: {e}")
+    except Exception as e:
+        logger.exception("msg_edit_receive")
+        await message.answer(f"Error: {e}")

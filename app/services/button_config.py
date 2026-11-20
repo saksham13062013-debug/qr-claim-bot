@@ -56,7 +56,10 @@ DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "upi": {"text": "UPI ID", "style": "success", "icon": "5807465992363710697"},
     "binance": {"text": "Binance ID", "style": "success", "icon": "5807465992363710697"},
     "view_balance": {"text": "View Balance", "style": "primary", "icon": "5807465992363710697"},
+    "home": {"text": "Home", "style": "primary", "icon": "5807868868886009920"},
+    "open_link": {"text": "Open Link", "style": "primary", "icon": "5260730055880876557"},
 }
+
 
 BUTTON_LABELS_HUMAN: dict[str, str] = {
     "how_to_claim": "How to Claim (menu)",
@@ -73,7 +76,10 @@ BUTTON_LABELS_HUMAN: dict[str, str] = {
     "upi": "UPI payout (inline)",
     "binance": "Binance payout (inline)",
     "view_balance": "View Balance (inline)",
+    "home": "Home (inline)",
+    "open_link": "Open Link (inline)",
 }
+
 
 
 async def get_all_buttons(session: AsyncSession) -> dict[str, dict[str, Any]]:

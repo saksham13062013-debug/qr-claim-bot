@@ -561,16 +561,21 @@ async def post_qr(
         exp_line = "No expiry"
         if qr.expires_at:
             exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
-        reward_str = f"{qr.reward_cents / 100:.2f}"
+        reward_str = f"${qr.reward_cents / 100:.2f}"
         pay = (getattr(qr, "payment_link", None) or "").strip()
-        msg = (
-            f"🆕 <b>New task #{qr.id}</b> · {app_label}\n"
-            f"💰 Your reward: <b>${reward_str}</b>\n"
-            f"⏰ Expires: {exp_line}\n"
-            f"⚡ Claim before opening the payment link."
+        link_line = f"Link: {pay}\n" if pay else ""
+        from app.services import message_templates as msg_tpl
+        msg = await msg_tpl.get_rendered(
+            session,
+            "msg_new_task_caption",
+            id=qr.id,
+            app=app_label,
+            reward=reward_str,
+            expires=exp_line,
+            code=qr.code,
+            link=pay,
+            link_line=link_line,
         )
-        if pay:
-            msg += f"\n\n🔗 {pay}"
         from app.bot import notify_claim_kb
         claim_kb = notify_claim_kb(qr.code, pay or None)
         import asyncio as _asyncio
@@ -1658,7 +1663,7 @@ async def broadcast_to_channel(
 
 @router.get("/admin/message-templates")
 async def list_message_templates(
-    admin: Admin = Depends(require_perm("settings.edit")),
+    admin: Admin = Depends(require_perm("settings.view")),
     session: AsyncSession = Depends(get_db),
 ):
     from app.services import message_templates as msg_tpl
@@ -1679,10 +1684,15 @@ async def update_message_template(
     value = str((body or {}).get("value") or "")
     try:
         await msg_tpl.save_template(session, key, value, admin_id=admin.id)
+        # Stop Settings "bot_welcome_message" from overriding Bot Messages templates
+        if key in ("msg_welcome", "msg_welcome_body"):
+            from app.services.settings_service import set_setting
+            await set_setting(session, "bot_welcome_message", "", admin_id=admin.id)
         await session.commit()
+        saved = await msg_tpl.get_template(session, key)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "key": key}
+    return {"ok": True, "key": key, "value": saved}
 
 
 @router.post("/admin/message-templates/{key}/reset")
@@ -1725,7 +1735,10 @@ async def reset_all_message_templates(
     session: AsyncSession = Depends(get_db),
 ):
     from app.services import message_templates as msg_tpl
+    from app.services.settings_service import set_setting
     n = await msg_tpl.reset_all_templates(session, admin_id=admin.id)
+    await set_setting(session, "bot_welcome_message", "", admin_id=admin.id)
+    await session.commit()
     return {"ok": True, "reset": n}
 
 
@@ -2080,16 +2093,21 @@ async def notify_one_user(
         exp_line = "No expiry"
         if qr.expires_at:
             exp_line = qr.expires_at.strftime("%H:%M:%S UTC")
-        reward_str = f"{qr.reward_cents / 100:.2f}"
+        reward_str = f"${qr.reward_cents / 100:.2f}"
         pay = (getattr(qr, "payment_link", None) or "").strip()
-        msg = (
-            f"🆕 <b>New task #{qr.id}</b> · {app_label}\n"
-            f"💰 Your reward: <b>${reward_str}</b>\n"
-            f"⏰ Expires: {exp_line}\n"
-            f"⚡ Claim before opening the payment link."
+        link_line = f"Link: {pay}\n" if pay else ""
+        from app.services import message_templates as msg_tpl
+        msg = await msg_tpl.get_rendered(
+            session,
+            "msg_new_task_caption",
+            id=qr.id,
+            app=app_label,
+            reward=reward_str,
+            expires=exp_line,
+            code=qr.code,
+            link=pay,
+            link_line=link_line,
         )
-        if pay:
-            msg += f"\n\n🔗 {pay}"
         from app.bot import notify_claim_kb
         claim_kb = notify_claim_kb(qr.code, pay or None)
         await bot.send_message(
