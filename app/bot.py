@@ -156,18 +156,59 @@ def _ik_btn(cfg: dict, key: str, **extra) -> InlineKeyboardButton:
             return InlineKeyboardButton(text=text, **{k: v for k, v in extra.items()})
 
 
+
+async def answer_with_menu(target, text: str, *, parse_mode=ParseMode.HTML, extra_kb=None):
+    """Send text + always refresh the reply keyboard from current button config."""
+    cfg = await load_btn_cfg()
+    kwargs = {"text": text, "reply_markup": main_menu_kb(cfg)}
+    if parse_mode:
+        kwargs["parse_mode"] = parse_mode
+    try:
+        if hasattr(target, "answer"):
+            await target.answer(**kwargs)
+        else:
+            await target.bot.send_message(target.chat.id, **kwargs)
+    except Exception:
+        kwargs.pop("parse_mode", None)
+        if hasattr(target, "answer"):
+            await target.answer(text, reply_markup=main_menu_kb(cfg))
+    if extra_kb is not None:
+        try:
+            if hasattr(target, "answer"):
+                await target.answer("Quick actions:", reply_markup=extra_kb)
+        except Exception:
+            pass
+
+
+_BTN_CFG_CACHE: dict | None = None
+
+
 async def load_btn_cfg() -> dict:
+    """Load button labels/icons from DB and cache for sync keyboard builders."""
+    global _BTN_CFG_CACHE
     from app.services import button_config as btn_cfg
 
-    async with get_db_context() as session:
-        return await btn_cfg.get_all_buttons(session)
+    try:
+        async with get_db_context() as session:
+            _BTN_CFG_CACHE = await btn_cfg.get_all_buttons(session)
+    except Exception:
+        from app.services import button_config as btn_cfg
+        _BTN_CFG_CACHE = dict(btn_cfg.DEFAULT_BUTTONS)
+    return _BTN_CFG_CACHE or dict(btn_cfg.DEFAULT_BUTTONS)
+
+
+def _cfg(cfg: dict | None = None) -> dict:
+    from app.services import button_config as btn_cfg
+    return cfg or _BTN_CFG_CACHE or btn_cfg.DEFAULT_BUTTONS
+
+
 
 
 def main_menu_kb(cfg: dict | None = None) -> ReplyKeyboardMarkup:
     """Clear 2-column menu: money actions first, then info."""
     from app.services import button_config as btn_cfg
 
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return ReplyKeyboardMarkup(
         keyboard=[
             [_kb_btn(c, "balance"), _kb_btn(c, "withdraw")],
@@ -184,7 +225,7 @@ def nav_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
     """Inline hub — always shown after actions so user knows next step."""
     from app.services import button_config as btn_cfg
 
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -217,7 +258,7 @@ def home_text(name: str) -> str:
 def force_join_kb(channels, cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
 
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     buttons = []
     for ch in channels:
         url = ch.invite_url
@@ -243,7 +284,7 @@ def force_join_kb(channels, cfg: dict | None = None) -> InlineKeyboardMarkup:
 def claim_flow_kb(code: str, payment_link: str | None = None, cfg: dict | None = None) -> InlineKeyboardMarkup:
     """Submit + Cancel, plus optional Open Link button."""
     from app.services import button_config as btn_cfg
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     rows = []
     if payment_link:
         rows.append([
@@ -261,7 +302,7 @@ def claim_flow_kb(code: str, payment_link: str | None = None, cfg: dict | None =
 
 def notify_claim_kb(code: str, payment_link: str | None = None, cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     rows = []
     if payment_link:
         rows.append([InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")])
@@ -272,7 +313,7 @@ def notify_claim_kb(code: str, payment_link: str | None = None, cfg: dict | None
 def claim_button(code: str, cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
 
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return InlineKeyboardMarkup(
         inline_keyboard=[[_ik_btn(c, "claim_qr", callback_data=f"claim:{code}")]]
     )
@@ -281,7 +322,7 @@ def claim_button(code: str, cfg: dict | None = None) -> InlineKeyboardMarkup:
 def submit_claim_button(code: str, cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
 
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_ik_btn(c, "submit_claim", callback_data=f"submit_claim:{code}")],
@@ -307,7 +348,7 @@ def withdraw_cancel_kb() -> InlineKeyboardMarkup:
 
 def payout_method_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_ik_btn(c, "upi", callback_data="payout:upi")],
@@ -319,7 +360,7 @@ def payout_method_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
 
 def after_claim_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
     from app.services import button_config as btn_cfg
-    c = cfg or btn_cfg.DEFAULT_BUTTONS
+    c = _cfg(cfg)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -671,7 +712,11 @@ async def cmd_start(message: Message, bot: Bot):
             await _send_claim_preview(message, bot, code)
             return
 
-    # Single welcome + persistent menu + one inline hub (no message spam)
+    # Force new reply keyboard (Telegram caches old labels otherwise)
+    try:
+        await message.answer("\u200b", reply_markup=ReplyKeyboardRemove())
+    except Exception:
+        pass
     try:
         await message.answer(
             text,
@@ -712,8 +757,10 @@ async def menu_label_dispatcher(message: Message, state: FSMContext, bot: Bot):
     text = (message.text or "").strip()
     if not text or text.startswith("/"):
         raise SkipHandler()
+    from app.services import button_config as btn_cfg
     cfg = await load_btn_cfg()
     key = None
+    norm = btn_cfg.strip_button_emoji(text).strip().lower()
     for k in (
         "how_to_claim",
         "balance",
@@ -723,17 +770,15 @@ async def menu_label_dispatcher(message: Message, state: FSMContext, bot: Bot):
         "support",
         "help",
     ):
-        label = ((cfg.get(k) or {}).get("text") or "").strip()
-        if text == label:
+        label = btn_cfg.strip_button_emoji((cfg.get(k) or {}).get("text") or "").strip()
+        if text == label or norm == label.lower():
+            key = k
+            break
+        # partial: custom label contains or equals without spaces
+        if label and (norm == label.lower().replace("  ", " ") or norm.replace(" ", "") == label.lower().replace(" ", "")):
             key = k
             break
     if not key:
-        low = text.lower().strip()
-        # strip common leading emoji for match
-        for prefix in ("📖 ", "💼 ", "📋 ", "💸 ", "📜 ", "🆘 ", "❓ ", "✅ ", "📤 ", "❌ "):
-            if text.startswith(prefix):
-                low = text[len(prefix):].lower().strip()
-                break
         mapping = {
             "how to claim": "how_to_claim",
             "balance": "balance",
@@ -745,7 +790,7 @@ async def menu_label_dispatcher(message: Message, state: FSMContext, bot: Bot):
             "support": "support",
             "help": "help",
         }
-        key = mapping.get(low)
+        key = mapping.get(norm)
     if not key:
         raise SkipHandler()
     # Delegate
@@ -789,13 +834,14 @@ async def menu_home_cb(callback: CallbackQuery, bot: Bot):
 @router.message(F.text.in_({"How to Claim", "📖 How to Claim"}))
 @router.callback_query(F.data == "menu:help")
 async def how_to_claim(event: Message | CallbackQuery, bot: Bot):
+    cfg = await load_btn_cfg()
     async with get_db_context() as _s:
         text = await msg_tpl.get_template(_s, "msg_how_to_claim")
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+        await event.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb(cfg))
     else:
-        await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+        await event.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb(cfg))
 
 
 @router.message(F.text.in_({"Balance", "Wallet", "💼 Balance"}))
@@ -1017,7 +1063,7 @@ async def payout_method_cb(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await state.clear()
         await callback.message.answer(
             "Withdrawal cancelled.",
-            reply_markup=main_menu_kb(),
+            reply_markup=main_menu_kb(await load_btn_cfg()),
         )
         return
     if action not in ("upi", "binance"):
@@ -1078,7 +1124,7 @@ async def withdraw_payout_details(message: Message, state: FSMContext, bot: Bot)
                 f"Status: <b>Pending</b>\n\n"
                 f"An admin will process this manually and mark it paid when complete.",
                 parse_mode=ParseMode.HTML,
-                reply_markup=main_menu_kb(),
+                reply_markup=main_menu_kb(await load_btn_cfg()),
             )
             # Notify admin panel via push event store is handled on API poll; optional TG to owner
             try:
@@ -1102,7 +1148,7 @@ async def withdraw_payout_details(message: Message, state: FSMContext, bot: Bot)
                 await message.answer(f"{pe('money')} Insufficient balance.")
             else:
                 await message.answer(f"{pe('warn')} Could not create withdrawal. Please try again.")
-            await message.answer(f"{pe('home')} Use the menu to continue.", reply_markup=main_menu_kb())
+            await message.answer(f"{pe('home')} Use the menu to continue.", reply_markup=main_menu_kb(await load_btn_cfg()))
     await state.clear()
 
 
@@ -1137,7 +1183,7 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
 async def support_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer("Cancelled")
-    await callback.message.answer("Support cancelled.", reply_markup=main_menu_kb())
+    await callback.message.answer("Support cancelled.", reply_markup=main_menu_kb(await load_btn_cfg()))
 
 
 @router.message(SupportStates.waiting_message)
@@ -1169,7 +1215,7 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
     await message.answer(
         f"<b>Ticket #{tid} created</b>\n\nWe will reply in this chat.",
         parse_mode=ParseMode.HTML,
-        reply_markup=main_menu_kb(),
+        reply_markup=main_menu_kb(await load_btn_cfg()),
     )
 
 
@@ -1236,7 +1282,7 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
                     photo=photo,
                     caption=caption,
                     parse_mode=ParseMode.HTML,
-                    reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None)),
+                    reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None), await load_btn_cfg()),
                 )
             else:
                 await bot.send_photo(
@@ -1244,13 +1290,13 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
                     photo=photo,
                     caption=caption,
                     parse_mode=ParseMode.HTML,
-                    reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None)),
+                    reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None), await load_btn_cfg()),
                 )
         except Exception:
             await target.answer(
                 caption,
                 parse_mode=ParseMode.HTML,
-                reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None)),
+                reply_markup=claim_flow_kb(qr.code, getattr(qr, "payment_link", None), await load_btn_cfg()),
             )
 
 
@@ -1312,7 +1358,7 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                             chat_id,
                             fj,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=force_join_kb(missing),
+                            reply_markup=force_join_kb(missing, await load_btn_cfg()),
                         )
                         return
             # Block already-taken / closed QRs before any image is sent
@@ -1400,7 +1446,7 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
                         await bot.send_message(
                             chat_id,
                             f"{pe('lock')} Please join all required channels first.",
-                            reply_markup=force_join_kb(missing),
+                            reply_markup=force_join_kb(missing, await load_btn_cfg()),
                         )
                         return
 
@@ -1436,20 +1482,20 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
                         await callback.message.edit_caption(
                             caption=text,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=after_claim_kb(),
+                            reply_markup=after_claim_kb(await load_btn_cfg()),
                         )
                     except Exception:
                         await callback.message.answer(
                             text,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=after_claim_kb(),
+                            reply_markup=after_claim_kb(await load_btn_cfg()),
                         )
                 else:
                     await bot.send_message(
                         chat_id,
                         text,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=after_claim_kb(),
+                        reply_markup=after_claim_kb(await load_btn_cfg()),
                     )
                 try:
                     if settings.owner_telegram_id:
@@ -1565,7 +1611,7 @@ async def check_membership_cb(callback: CallbackQuery, bot: Bot):
         "<b>Still missing channels</b>\n\n"
         "Join all required channels, then tap check again.",
         parse_mode=ParseMode.HTML,
-        reply_markup=force_join_kb(missing),
+        reply_markup=force_join_kb(missing, await load_btn_cfg()),
     )
 
 

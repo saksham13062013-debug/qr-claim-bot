@@ -1661,6 +1661,118 @@ async def broadcast_to_channel(
 
 
 
+
+
+@router.get("/admin/bot-buttons")
+async def list_bot_buttons(
+    admin: Admin = Depends(require_perm("settings.view")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services import button_config as btn_cfg
+    buttons = await btn_cfg.get_all_buttons(session)
+    items = []
+    for key, meta in buttons.items():
+        items.append({
+            "key": key,
+            "label": btn_cfg.BUTTON_LABELS_HUMAN.get(key, key),
+            "text": meta.get("text") or key,
+            "style": meta.get("style") or "primary",
+            "icon": meta.get("icon") or None,
+        })
+    return {"items": items}
+
+
+class BotButtonUpdate(BaseModel):
+    text: str
+    icon: Optional[str] = None
+    style: Optional[str] = None
+
+
+@router.put("/admin/bot-buttons/{key}")
+async def update_bot_button(
+    key: str,
+    body: BotButtonUpdate,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services import button_config as btn_cfg
+    try:
+        entry = await btn_cfg.save_button(
+            session,
+            key,
+            text=body.text,
+            icon=body.icon,
+            style=body.style,
+            admin_id=admin.id,
+        )
+        await session.commit()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "key": key, **entry}
+
+
+
+
+@router.post("/admin/bot-buttons/{key}")
+async def update_bot_button_post(
+    key: str,
+    body: BotButtonUpdate,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    """POST alias for clients that block PUT."""
+    from app.services import button_config as btn_cfg
+    try:
+        entry = await btn_cfg.save_button(
+            session,
+            key,
+            text=body.text,
+            icon=body.icon,
+            style=body.style,
+            admin_id=admin.id,
+        )
+        await session.commit()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "key": key, **entry}
+
+
+class BotButtonsBulkUpdate(BaseModel):
+    items: list[dict]
+
+
+@router.post("/admin/bot-buttons/save-all")
+async def save_all_bot_buttons(
+    body: BotButtonsBulkUpdate,
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services import button_config as btn_cfg
+    result = await btn_cfg.save_all_buttons(session, body.items or [], admin_id=admin.id)
+    await session.commit()
+    items = [
+        {
+            "key": k,
+            "label": btn_cfg.BUTTON_LABELS_HUMAN.get(k, k),
+            **v,
+        }
+        for k, v in result.items()
+    ]
+    return {"ok": True, "items": items}
+
+
+@router.post("/admin/bot-buttons/reset-all")
+async def reset_all_bot_buttons(
+    admin: Admin = Depends(require_perm("settings.edit")),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services import button_config as btn_cfg
+    await btn_cfg.reset_buttons(session, admin_id=admin.id)
+    await session.commit()
+    return {"ok": True}
+
+
+
 @router.get("/admin/message-templates")
 async def list_message_templates(
     admin: Admin = Depends(require_perm("settings.view")),

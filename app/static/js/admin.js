@@ -267,6 +267,7 @@ const PAGE_META = {
   groups: { title: "Groups", sub: "Group tools, DM on join, bans/mutes" },
   campaigns: { title: "Campaigns", sub: "Campaign performance overview" },
   tickets: { title: "Support Tickets", sub: "User support messages" },
+  buttons: { title: "Button Labels", sub: "Edit every user bot button text + premium icon id" },
   messages: { title: "Bot Messages", sub: "Edit all bot responses · custom emoji HTML supported" },
   broadcast: { title: "Broadcast", sub: "Send a message to all bot users" },
   settings: { title: "Settings", sub: "Bot configuration & defaults" },
@@ -310,6 +311,7 @@ async function loadPage(page) {
       campaigns: renderCampaigns,
       tickets: renderTickets,
       broadcast: renderBroadcast,
+      buttons: renderButtons,
       messages: renderMessages,
       settings: renderSettings,
       admins: renderAdmins,
@@ -1901,6 +1903,94 @@ async function doChannelBroadcast() {
     if (video) fd.append("video", video);
     const res = await api("/admin/broadcast-channel", { method: "POST", body: fd });
     toast(res.message || "Posted");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+
+
+/* ---------- Button labels (all bot UI buttons) ---------- */
+async function renderButtons() {
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-outline btn-sm" onclick="resetAllButtons()">Reset all to defaults</button>
+  `;
+  const data = await api("/admin/bot-buttons");
+  const items = data.items || [];
+  document.getElementById("content").innerHTML = `
+    <div class="card anim-fade">
+      <h3 style="margin-top:0">User bot button labels</h3>
+      <p class="muted">
+        These labels appear on the Telegram reply keyboard and inline buttons.
+        Text should be <b>plain</b> (no normal emoji). Premium icon = numeric
+        <code>icon_custom_emoji_id</code> from Telegram <code>/eid</code>.
+        After save, open Telegram bot and send <code>/start</code> once — Telegram keeps the old keyboard until a new one is sent.
+      </p>
+      <div class="table-wrap"><table class="table"><thead><tr>
+        <th>Button</th><th>Label</th><th>Style</th><th>Icon id</th><th></th>
+      </tr></thead><tbody>
+        ${items.map(it => `
+          <tr>
+            <td><b>${escapeHtml(it.label)}</b><br><code style="font-size:0.75rem">${escapeHtml(it.key)}</code></td>
+            <td>${escapeHtml(it.text)}</td>
+            <td><span class="badge">${escapeHtml(it.style)}</span></td>
+            <td style="font-size:0.75rem">${it.icon ? `<code>${escapeHtml(it.icon)}</code>` : "<span class=muted>—</span>"}</td>
+            <td><button class="btn btn-sm btn-primary" onclick="editBotButton('${it.key}')">Edit</button></td>
+          </tr>`).join("")}
+      </tbody></table></div>
+    </div>`;
+}
+
+async function editBotButton(key) {
+  const data = await api("/admin/bot-buttons");
+  const it = (data.items || []).find(x => x.key === key);
+  if (!it) return;
+  openModal("Edit button: " + it.label, `
+    <p class="muted" style="font-size:0.8rem">Key: <code>${escapeHtml(key)}</code></p>
+    <div class="form-group">
+      <label>Label text (plain — no unicode emoji)</label>
+      <input type="text" id="btnText" maxlength="64" value="${escapeHtml(it.text)}" />
+    </div>
+    <div class="form-group">
+      <label>Style</label>
+      <select id="btnStyle">
+        <option value="primary" ${it.style==="primary"?"selected":""}>primary (blue)</option>
+        <option value="success" ${it.style==="success"?"selected":""}>success (green)</option>
+        <option value="danger" ${it.style==="danger"?"selected":""}>danger (red)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Premium icon emoji id (optional)</label>
+      <input type="text" id="btnIcon" placeholder="e.g. 5920052658743283381" value="${escapeHtml(it.icon || "")}" />
+      <p class="muted" style="font-size:0.75rem;margin:0.35rem 0 0">Telegram /eid on a pack emoji · leave empty to clear</p>
+    </div>
+  `, `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveBotButton('${key}')">Save</button>
+  `);
+}
+
+async function saveBotButton(key) {
+  const text = (document.getElementById("btnText").value || "").trim();
+  const style = document.getElementById("btnStyle").value;
+  const iconRaw = (document.getElementById("btnIcon").value || "").trim();
+  const icon = iconRaw || null;
+  if (!text) { toast("Label required", "error"); return; }
+  try {
+    const res = await api("/admin/bot-buttons/" + key, {
+      method: "POST",
+      body: { text, style, icon },
+    });
+    toast("Saved: " + (res.text || text) + " — open bot and send /start");
+    closeModal();
+    renderButtons();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function resetAllButtons() {
+  if (!confirm("Reset ALL button labels and icons to defaults?")) return;
+  try {
+    await api("/admin/bot-buttons/reset-all", { method: "POST" });
+    toast("Buttons reset");
+    renderButtons();
   } catch (e) { toast(e.message, "error"); }
 }
 

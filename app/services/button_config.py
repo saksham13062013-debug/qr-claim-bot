@@ -1,9 +1,4 @@
-"""Configurable user-bot button labels + optional custom emoji icons.
-
-Admins set labels from Telegram /admin → Button labels.
-Send a message that includes pack/custom emoji; the first custom emoji
-on the message is stored as icon_custom_emoji_id (Bot API).
-"""
+"""Configurable user-bot button labels + optional custom emoji icons."""
 
 from __future__ import annotations
 
@@ -17,21 +12,19 @@ from app.services.settings_service import get_setting, set_setting
 
 SETTING_KEY = "bot_button_config"
 
-# Unicode emoji ranges commonly used in old button labels
 _EMOJI_RE = re.compile(
     "["
-    "\U0001F300-\U0001F9FF"  # misc symbols & pictographs + supplemental
-    "\U00002600-\U000027BF"  # misc symbols
-    "\U0001FA00-\U0001FAFF"  # extended-A
-    "\U0000200D"             # ZWJ
-    "\U0000FE0F"             # variation selector
+    "\U0001F300-\U0001F9FF"
+    "\U00002600-\U000027BF"
+    "\U0001FA00-\U0001FAFF"
+    "\U0000200D"
+    "\U0000FE0F"
     "]+",
     flags=re.UNICODE,
 )
 
 
 def strip_button_emoji(text: str) -> str:
-    """Remove normal Unicode emoji from button text (premium uses icon id only)."""
     if not text:
         return text or ""
     cleaned = _EMOJI_RE.sub("", text)
@@ -39,8 +32,6 @@ def strip_button_emoji(text: str) -> str:
     return cleaned.strip() or text.strip()
 
 
-
-# key -> default label, style, icon_custom_emoji_id
 DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "how_to_claim": {"text": "How to Claim", "style": "primary", "icon": "5258503720928288433"},
     "balance": {"text": "Balance", "style": "primary", "icon": "5807465992363710697"},
@@ -59,7 +50,6 @@ DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "home": {"text": "Home", "style": "primary", "icon": "5807868868886009920"},
     "open_link": {"text": "Open Link", "style": "primary", "icon": "5260730055880876557"},
 }
-
 
 BUTTON_LABELS_HUMAN: dict[str, str] = {
     "how_to_claim": "How to Claim (menu)",
@@ -81,23 +71,30 @@ BUTTON_LABELS_HUMAN: dict[str, str] = {
 }
 
 
+async def _raw_store(session: AsyncSession) -> dict[str, Any]:
+    raw = await get_setting(session, SETTING_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
 
 async def get_all_buttons(session: AsyncSession) -> dict[str, dict[str, Any]]:
-    raw = await get_setting(session, SETTING_KEY)
-    data: dict[str, Any] = {}
-    if raw:
-        try:
-            data = json.loads(raw)
-        except Exception:
-            data = {}
+    data = await _raw_store(session)
     out: dict[str, dict[str, Any]] = {}
     for key, default in DEFAULT_BUTTONS.items():
-        cur = data.get(key) or {}
-        out[key] = {
-            "text": strip_button_emoji((cur.get("text") or default["text"])[:64]),
-            "style": cur.get("style") or default["style"],
-            "icon": cur.get("icon") or default.get("icon"),
-        }
+        cur = data.get(key) if isinstance(data.get(key), dict) else {}
+        text = strip_button_emoji(str(cur.get("text") or default["text"])[:64])
+        style = cur.get("style") or default["style"]
+        # Respect explicit null icon in store; only fall back if key missing
+        if "icon" in cur:
+            icon = cur.get("icon") or None
+        else:
+            icon = default.get("icon")
+        out[key] = {"text": text, "style": style, "icon": icon}
     return out
 
 
@@ -117,22 +114,54 @@ async def save_button(
 ) -> dict[str, Any]:
     if key not in DEFAULT_BUTTONS:
         raise ValueError("UNKNOWN_BUTTON")
-    all_b = await get_all_buttons(session)
-    entry = all_b[key]
-    entry["text"] = strip_button_emoji((text or entry["text"])[:64])
-    if icon is not None:
-        entry["icon"] = icon or None
+    data = await _raw_store(session)
+    entry = dict(data.get(key) or {})
+    entry["text"] = strip_button_emoji((text or DEFAULT_BUTTONS[key]["text"])[:64])
     if style:
         entry["style"] = style
-    all_b[key] = entry
+    # Always set icon key when provided (including empty → clear to default on read)
+    if icon is not None:
+        icon_clean = str(icon).strip()
+        entry["icon"] = icon_clean if icon_clean else None
+    data[key] = entry
     await set_setting(
         session,
         SETTING_KEY,
-        json.dumps(all_b, ensure_ascii=False),
+        json.dumps(data, ensure_ascii=False),
         admin_id=admin_id,
         description="User bot button labels and custom emoji icons",
     )
-    return entry
+    # Return merged view
+    return (await get_all_buttons(session))[key]
+
+
+async def save_all_buttons(
+    session: AsyncSession,
+    items: list[dict[str, Any]],
+    admin_id: Optional[int] = None,
+) -> dict[str, dict[str, Any]]:
+    data = await _raw_store(session)
+    for it in items:
+        key = it.get("key")
+        if key not in DEFAULT_BUTTONS:
+            continue
+        entry = dict(data.get(key) or {})
+        if "text" in it and it["text"] is not None:
+            entry["text"] = strip_button_emoji(str(it["text"])[:64])
+        if it.get("style"):
+            entry["style"] = it["style"]
+        if "icon" in it:
+            ic = it.get("icon")
+            entry["icon"] = str(ic).strip() if ic else None
+        data[key] = entry
+    await set_setting(
+        session,
+        SETTING_KEY,
+        json.dumps(data, ensure_ascii=False),
+        admin_id=admin_id,
+        description="User bot button labels and custom emoji icons",
+    )
+    return await get_all_buttons(session)
 
 
 async def reset_buttons(session: AsyncSession, admin_id: Optional[int] = None) -> None:
@@ -140,23 +169,12 @@ async def reset_buttons(session: AsyncSession, admin_id: Optional[int] = None) -
 
 
 def extract_custom_emoji_id(message) -> Optional[str]:
-    """First custom_emoji entity id from text or caption."""
-    ents = list(getattr(message, "entities", None) or []) + list(
+    entities = list(getattr(message, "entities", None) or []) + list(
         getattr(message, "caption_entities", None) or []
     )
-    for e in ents:
-        et = getattr(e, "type", None)
-        et_val = et.value if hasattr(et, "value") else str(et)
-        if "custom_emoji" in et_val.lower():
-            cid = getattr(e, "custom_emoji_id", None)
+    for ent in entities:
+        if getattr(ent, "type", None) == "custom_emoji" or str(getattr(ent, "type", "")) == "custom_emoji":
+            cid = getattr(ent, "custom_emoji_id", None)
             if cid:
                 return str(cid)
     return None
-
-
-def plain_text_without_command(message, command: Optional[str] = None) -> str:
-    text = (message.text or message.caption or "").strip()
-    if command and text.lower().startswith(command.lower()):
-        parts = text.split(maxsplit=1)
-        return parts[1].strip() if len(parts) > 1 else ""
-    return text
