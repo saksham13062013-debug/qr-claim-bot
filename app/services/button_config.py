@@ -33,7 +33,6 @@ def strip_button_emoji(text: str) -> str:
 
 
 DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
-    # Reply keyboard (main menu)
     "how_to_claim": {"text": "How to Claim", "style": "primary", "icon": "5258503720928288433"},
     "balance": {"text": "Balance", "style": "primary", "icon": "5807465992363710697"},
     "my_claims": {"text": "My Claims", "style": "primary", "icon": "5258477770735885832"},
@@ -41,25 +40,15 @@ DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "history": {"text": "History", "style": "primary", "icon": "5260687119092817530"},
     "support": {"text": "Support", "style": "danger", "icon": "5258503720928288433"},
     "help": {"text": "Help", "style": "primary", "icon": "5258503720928288433"},
-    # Inline — claim flow
     "claim_qr": {"text": "CLAIM QR", "style": "success", "icon": "5843553939672274145"},
     "submit_claim": {"text": "Submit Claim", "style": "success", "icon": "5920052658743283381"},
     "cancel": {"text": "Cancel", "style": "danger", "icon": "5258226313285607065"},
-    "open_link": {"text": "Open Link", "style": "primary", "icon": "5260730055880876557"},
     "check_join": {"text": "I Joined – Check Again", "style": "success", "icon": "5920052658743283381"},
-    # Inline — payout
     "upi": {"text": "UPI ID", "style": "success", "icon": "5807465992363710697"},
     "binance": {"text": "Binance ID", "style": "success", "icon": "5807465992363710697"},
     "view_balance": {"text": "View Balance", "style": "primary", "icon": "5807465992363710697"},
-    # Inline — navigation
     "home": {"text": "Home", "style": "primary", "icon": "5807868868886009920"},
-    "open_claimer_profile": {"text": "Open claimer profile", "style": "primary", "icon": "5258362837411045098"},
-    # Tools
-    "open_mini_app": {"text": "Open Mini App", "style": "primary", "icon": "5260730055880876557"},
-    "open_admin_panel": {"text": "Open Admin Panel", "style": "primary", "icon": "5258420634785947640"},
-    "login_page": {"text": "Login page", "style": "primary", "icon": "5258514780469075716"},
-    "open_scanner": {"text": "Open Scanner", "style": "primary", "icon": "5260341314095947411"},
-    # Group help related (labels for consistency)
+    "open_link": {"text": "Open Link", "style": "primary", "icon": "5260730055880876557"},
     "group_help": {"text": "Group Help", "style": "primary", "icon": "5258503720928288433"},
     "unmute": {"text": "Unmute", "style": "success", "icon": "5920052658743283381"},
     "unban": {"text": "Unban", "style": "success", "icon": "5920052658743283381"},
@@ -69,67 +58,44 @@ DEFAULT_BUTTONS: dict[str, dict[str, Any]] = {
     "admins_list": {"text": "Admins", "style": "primary", "icon": "5258362837411045098"},
 }
 
-BUTTON_CATEGORIES: dict[str, str] = {
-    "how_to_claim": "Reply menu",
-    "balance": "Reply menu",
-    "my_claims": "Reply menu",
-    "withdraw": "Reply menu",
-    "history": "Reply menu",
-    "support": "Reply menu",
-    "help": "Reply menu",
-    "claim_qr": "Inline · Claim",
-    "submit_claim": "Inline · Claim",
-    "cancel": "Inline · Claim",
-    "open_link": "Inline · Claim",
-    "check_join": "Inline · Force join",
-    "upi": "Inline · Withdraw",
-    "binance": "Inline · Withdraw",
-    "view_balance": "Inline · Withdraw",
-    "home": "Inline · Nav",
-    "open_claimer_profile": "Inline · Nav",
-    "open_mini_app": "Inline · Tools",
-    "open_admin_panel": "Inline · Tools",
-    "login_page": "Inline · Tools",
-    "open_scanner": "Inline · Tools",
-    "group_help": "Group",
-    "unmute": "Group",
-    "unban": "Group",
-    "unlock": "Group",
-    "unwarn": "Group",
-    "rules": "Group",
-    "admins_list": "Group",
-}
 
 BUTTON_LABELS_HUMAN: dict[str, str] = {
-    "how_to_claim": "How to Claim (reply menu)",
-    "balance": "Balance (reply + inline)",
-    "my_claims": "My Claims (reply + inline)",
-    "withdraw": "Withdraw (reply + inline)",
-    "history": "History (reply + inline)",
-    "support": "Support (reply menu)",
-    "help": "Help (reply + inline)",
+    "how_to_claim": "How to Claim (menu)",
+    "balance": "Balance (menu)",
+    "my_claims": "My Claims (menu)",
+    "withdraw": "Withdraw (menu)",
+    "history": "History (menu)",
+    "support": "Support (menu)",
+    "help": "Help (menu)",
     "claim_qr": "CLAIM QR (inline)",
     "submit_claim": "Submit Claim (inline)",
     "cancel": "Cancel (inline)",
-    "open_link": "Open Link (inline after claim)",
-    "check_join": "I Joined – Check Again (inline)",
-    "upi": "UPI ID (inline)",
-    "binance": "Binance ID (inline)",
+    "check_join": "Force-join check (inline)",
+    "upi": "UPI payout (inline)",
+    "binance": "Binance payout (inline)",
     "view_balance": "View Balance (inline)",
-    "home": "Home (inline nav)",
-    "open_claimer_profile": "Open claimer profile (inline)",
-    "open_mini_app": "Open Mini App",
-    "open_admin_panel": "Open Admin Panel",
-    "login_page": "Login page",
-    "open_scanner": "Open Scanner",
+    "home": "Home (inline)",
+    "open_link": "Open Link (inline)",
     "group_help": "Group Help",
-    "unmute": "Unmute",
-    "unban": "Unban",
-    "unlock": "Unlock",
-    "unwarn": "Remove Warn",
-    "rules": "Rules",
-    "admins_list": "Admins",
+    "unmute": "Unmute (group)",
+    "unban": "Unban (group)",
+    "unlock": "Unlock (group)",
+    "unwarn": "Remove warn (group)",
+    "rules": "Rules (group)",
+    "admins_list": "Admins list (group)",
 }
+
+
+
+async def _raw_store(session: AsyncSession) -> dict[str, Any]:
+    raw = await get_setting(session, SETTING_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 async def get_all_buttons(session: AsyncSession) -> dict[str, dict[str, Any]]:

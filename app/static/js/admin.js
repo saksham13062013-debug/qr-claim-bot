@@ -1915,39 +1915,27 @@ async function renderButtons() {
   `;
   const data = await api("/admin/bot-buttons");
   const items = data.items || [];
-  const cats = {};
-  items.forEach(it => {
-    const c = it.category || "Other";
-    if (!cats[c]) cats[c] = [];
-    cats[c].push(it);
-  });
-  const catOrder = ["Reply menu", "Inline · Claim", "Inline · Force join", "Inline · Withdraw", "Inline · Nav", "Inline · Tools", "Group", "Other"];
-  const ordered = catOrder.filter(c => cats[c]).concat(Object.keys(cats).filter(c => !catOrder.includes(c)));
-  let tables = ordered.map(cat => `
-    <h4 style="margin:1.25rem 0 0.5rem">${escapeHtml(cat)}</h4>
-    <div class="table-wrap"><table class="table"><thead><tr>
-      <th>Button</th><th>Label text</th><th>Style</th><th>Premium icon id</th><th></th>
-    </tr></thead><tbody>
-      ${cats[cat].map(it => `
-        <tr>
-          <td><b>${escapeHtml(it.label)}</b><br><code style="font-size:0.75rem">${escapeHtml(it.key)}</code></td>
-          <td><b>${escapeHtml(it.text)}</b></td>
-          <td><span class="badge">${escapeHtml(it.style)}</span></td>
-          <td style="font-size:0.75rem">${it.icon ? `<code>${escapeHtml(it.icon)}</code>` : "<span class=muted>—</span>"}</td>
-          <td><button class="btn btn-sm btn-primary" onclick="editBotButton('${it.key}')">Edit</button></td>
-        </tr>`).join("")}
-    </tbody></table></div>
-  `).join("");
   document.getElementById("content").innerHTML = `
     <div class="card anim-fade">
-      <h3 style="margin-top:0">Button labels (reply + inline)</h3>
+      <h3 style="margin-top:0">User bot button labels</h3>
       <p class="muted">
-        Edit <b>every</b> user-facing button: main menu (reply keyboard) and inline buttons
-        (CLAIM QR, Submit, Open Link, Home, Cancel, UPI, …).
-        Plain text only — premium icon via emoji id from Telegram <code>/eid</code>.
-        After save: bot <code>/start</code> once to refresh reply keyboard. Inline buttons update on next message.
+        These labels appear on the Telegram reply keyboard and inline buttons.
+        Text should be <b>plain</b> (no normal emoji). Premium icon = numeric
+        <code>icon_custom_emoji_id</code> from Telegram <code>/eid</code>.
+        After save, open Telegram bot and send <code>/start</code> once — Telegram keeps the old keyboard until a new one is sent.
       </p>
-      ${tables}
+      <div class="table-wrap"><table class="table"><thead><tr>
+        <th>Button</th><th>Label</th><th>Style</th><th>Icon id</th><th></th>
+      </tr></thead><tbody>
+        ${items.map(it => `
+          <tr>
+            <td><b>${escapeHtml(it.label)}</b><br><code style="font-size:0.75rem">${escapeHtml(it.key)}</code></td>
+            <td>${escapeHtml(it.text)}</td>
+            <td><span class="badge">${escapeHtml(it.style)}</span></td>
+            <td style="font-size:0.75rem">${it.icon ? `<code>${escapeHtml(it.icon)}</code>` : "<span class=muted>—</span>"}</td>
+            <td><button class="btn btn-sm btn-primary" onclick="editBotButton('${it.key}')">Edit</button></td>
+          </tr>`).join("")}
+      </tbody></table></div>
     </div>`;
 }
 

@@ -236,7 +236,7 @@ def nav_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
             ],
             [
                 _ik_btn(c, "help", callback_data="menu:help"),
-                _ik_btn(c, "home", callback_data="menu:home"),
+                InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
             ],
         ]
     )
@@ -285,13 +285,15 @@ def claim_flow_kb(code: str, payment_link: str | None = None, cfg: dict | None =
     c = _cfg(cfg)
     rows = []
     if payment_link:
-        rows.append([_ik_btn(c, "open_link", url=payment_link)])
+        rows.append([
+            InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")
+        ])
     rows.append([
         _ik_btn(c, "submit_claim", callback_data=f"submit_claim:{code}"),
     ])
     rows.append([
         _ik_btn(c, "cancel", callback_data="cancel_claim"),
-        _ik_btn(c, "home", callback_data="menu:home"),
+        InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -330,7 +332,11 @@ def withdraw_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                _ik_btn(c, "cancel", callback_data="payout:cancel")
+                InlineKeyboardButton(
+                    text="Cancel",
+                    callback_data="payout:cancel",
+                    style="danger",  # red
+                )
             ]
         ]
     )
@@ -487,9 +493,8 @@ async def _send_already_claimed(
                 claimer_line += f" (<a href=\"https://t.me/{uname}\">@{uname}</a>)"
             buttons.append(
                 [
-                    _ik_btn(
-                        _cfg(None),
-                        "open_claimer_profile",
+                    InlineKeyboardButton(
+                        text="👤 Open claimer profile",
                         url=f"https://t.me/{uname}",
                     )
                 ]
@@ -502,8 +507,16 @@ async def _send_already_claimed(
 
     buttons.append(
         [
-            _ik_btn(_cfg(None), "balance", callback_data="menu:balance"),
-            _ik_btn(_cfg(None), "help", callback_data="menu:help"),
+            InlineKeyboardButton(
+                text="Balance",
+                callback_data="menu:balance",
+                style="primary",
+            ),
+            InlineKeyboardButton(
+                text="Help",
+                callback_data="menu:help",
+                style="primary",
+            ),
         ]
     )
     claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -864,8 +877,16 @@ async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    _ik_btn(c, "withdraw", callback_data="menu:withdraw"),
-                    _ik_btn(c, "history", callback_data="menu:history"),
+                    InlineKeyboardButton(
+                        text="Withdraw",
+                        callback_data="menu:withdraw",
+                        style="success",
+                    ),
+                    InlineKeyboardButton(
+                        text="History",
+                        callback_data="menu:history",
+                        style="primary",
+                    ),
                 ]
             ]
         )
@@ -948,15 +969,23 @@ async def my_claims(event: Message | CallbackQuery, bot: Bot):
 
 @router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Help", "❓ Help"}))
 async def help_cmd(message: Message, bot: Bot):
-    cfg = await load_btn_cfg()
-    async with get_db_context() as session:
-        text = await msg_tpl.get_template(session, "msg_help")
-    try:
-        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb(cfg))
-    except Exception:
-        await message.answer(text, reply_markup=nav_kb(cfg))
+    await message.answer(
+        "<b>Help</b>\n\n"
+        "• <b>How to Claim</b> — step-by-step guide\n"
+        "• <b>Balance</b> — wallet balance and pending funds\n"
+        "• <b>My Claims</b> — status of your reward claims\n"
+        "• <b>Withdraw</b> — request payout via UPI or Binance\n"
+        "• <b>History</b> — recent wallet transactions\n"
+        "• <b>Support</b> — message the admin team\n\n"
+        "Rewards are sent as private messages. Only one user can claim each QR.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=nav_kb(),
+    )
 
 
+# ---------------------------------------------------------------------------
+# Withdraw: amount → UPI / Binance → details
+# ---------------------------------------------------------------------------
 
 @router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Withdraw", "💸 Withdraw"}))
 @router.callback_query(F.data == "menu:withdraw")
@@ -1147,7 +1176,11 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    _ik_btn(c, "cancel", callback_data="support:cancel")
+                    InlineKeyboardButton(
+                        text="Cancel",
+                        callback_data="support:cancel",
+                        style="danger",
+                    )
                 ]
             ]
         ),
@@ -1158,9 +1191,7 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
 async def support_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer("Cancelled")
-    async with get_db_context() as _s:
-        _t = await msg_tpl.get_template(_s, "msg_support_cancelled")
-    await callback.message.answer(_t, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb(await load_btn_cfg()))
+    await callback.message.answer("Support cancelled.", reply_markup=main_menu_kb(await load_btn_cfg()))
 
 
 @router.message(SupportStates.waiting_message)
@@ -1398,7 +1429,7 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
                     return
                 if err == "QR_EXPIRED":
                     await bot.send_message(
-                        chat_id,
+                        chat_id, f"{pe('clock')} This QR has expired.", reply_markup=nav_kb()
                     )
                     return
                 if err == "QR_NOT_FOUND":
@@ -1571,9 +1602,9 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
                 elif err == "QR_NOT_FOUND":
                     await bot.send_message(chat_id, f"{pe('cross')} Invalid or unknown QR code.")
                 elif err == "QR_EXPIRED":
-                    async with get_db_context() as _s:
-                        _t = await msg_tpl.get_template(_s, "msg_qr_expired")
-                    await bot.send_message(chat_id, _t, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
+                    await bot.send_message(
+                        chat_id, f"{pe('clock')} This QR has expired.", reply_markup=nav_kb()
+                    )
                 elif err.startswith("QR_"):
                     await bot.send_message(
                         chat_id,
@@ -1703,7 +1734,11 @@ async def cmd_web_admin(message: Message):
 
         mini = [
             [
-                _ik_btn(_cfg(None), "open_mini_app", web_app=WebAppInfo(url=login_url))
+                InlineKeyboardButton(
+                    text="Open Mini App",
+                    web_app=WebAppInfo(url=login_url),
+                    style="primary",
+                )
             ]
         ]
     except Exception:
@@ -1711,11 +1746,19 @@ async def cmd_web_admin(message: Message):
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                _ik_btn(_cfg(None), "open_admin_panel", url=admin_url)
+                InlineKeyboardButton(
+                    text="Open Admin Panel",
+                    url=admin_url,
+                    style="success",
+                )
             ],
             *mini,
             [
-                _ik_btn(_cfg(None), "login_page", url=login_url)
+                InlineKeyboardButton(
+                    text="Login page",
+                    url=login_url,
+                    style="primary",
+                )
             ],
         ]
     )
@@ -1802,7 +1845,11 @@ async def cmd_scanner(message: Message):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    _ik_btn(_cfg(None), "open_scanner", url=url)
+                    InlineKeyboardButton(
+                        text="Open Scanner",
+                        url=url,
+                        style="success",
+                    )
                 ]
             ]
         )

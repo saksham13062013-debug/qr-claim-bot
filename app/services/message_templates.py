@@ -101,88 +101,6 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         f"{pe('clock')} Expires: {{expires}}\n"
         f"{pe('fire')} Claim before opening the payment link."
     ),
-
-    "msg_help": (
-        f"{pe('help')} <b>Help</b>\n\n"
-        f"Use the menu buttons or commands:\n"
-        f"• Balance — wallet balance\n"
-        f"• My Claims — your claim history\n"
-        f"• Withdraw — request payout\n"
-        f"• Support — contact admins\n\n"
-        f"{pe('warn')} Each QR is one-time and first-come first-served."
-    ),
-    "msg_my_claims_empty": (
-        f"{pe('list')} <b>My Claims</b>\n\n"
-        "You have no claims yet.\n"
-        "When a task is posted, tap <b>CLAIM QR</b>."
-    ),
-    "msg_my_claims_header": (
-        f"{pe('list')} <b>My Claims</b> ({{count}})\n\n{{lines}}"
-    ),
-    "msg_history_empty": (
-        f"{pe('chart')} <b>Transaction history</b>\n\n"
-        "No transactions yet."
-    ),
-    "msg_history_header": (
-        f"{pe('chart')} <b>Transaction history</b>\n\n{{lines}}"
-    ),
-    "msg_withdraw_amount": (
-        f"{pe('money')} <b>Withdraw</b>\n\n"
-        "Send the amount in USD (example: <code>5</code> or <code>5.50</code>).\n"
-        f"Available: <b>{{balance}}</b> · Min <b>{{min_amount}}</b>"
-    ),
-    "msg_withdraw_submitted": (
-        f"{pe('check')} <b>Withdrawal requested</b>\n\n"
-        f"Amount: <b>{{amount}}</b>\n"
-        f"Method: <b>{{method}}</b>\n"
-        f"Details: <code>{{details}}</code>\n\n"
-        "An admin will process it manually."
-    ),
-    "msg_withdraw_paid": (
-        f"{pe('party')} <b>Withdrawal paid</b>\n\n"
-        f"Amount: <b>{{amount}}</b>\n"
-        f"Ref: <code>{{reference}}</code>"
-    ),
-    "msg_withdraw_rejected": (
-        f"{pe('cross')} <b>Withdrawal rejected</b>\n\n"
-        f"Amount: <b>{{amount}}</b>\n"
-        f"Reason: {{reason}}\n\n"
-        "Balance has been refunded."
-    ),
-    "msg_support_sent": (
-        f"{pe('check')} Support message sent.\n"
-        "An admin will reply here."
-    ),
-    "msg_support_cancelled": (
-        f"{pe('cross')} Support cancelled."
-    ),
-    "msg_qr_expired": (
-        f"{pe('clock')} <b>This QR has expired.</b>"
-    ),
-    "msg_qr_invalid": (
-        f"{pe('cross')} <b>Invalid QR</b>\nThis code is unknown or removed."
-    ),
-    "msg_qr_not_available": (
-        f"{pe('pause')} <b>QR not available</b>\nStatus: <code>{{status}}</code>"
-    ),
-    "msg_claim_reserved": (
-        f"{pe('check')} <b>You claimed this task</b>\n\n"
-        f"Reward: <b>{{reward}}</b>\n"
-        "Open the link, complete payment, then tap <b>Submit Claim</b>."
-    ),
-    "msg_user_banned": (
-        f"{pe('ban')} Your account is restricted. Contact support."
-    ),
-    "msg_maintenance": (
-        f"{pe('gear')} Bot is under maintenance. Please try again later."
-    ),
-    "msg_payout_choose": (
-        f"{pe('wallet')} Choose payout method: <b>UPI</b> or <b>Binance ID</b>."
-    ),
-    "msg_payout_details_prompt": (
-        f"{pe('doc')} Send your <b>{{method}}</b> details now."
-    ),
-
 }
 
 TEMPLATE_LABELS: dict[str, str] = {
@@ -201,26 +119,6 @@ TEMPLATE_LABELS: dict[str, str] = {
     "msg_support_start": "Support prompt",
     "msg_group_private_only": "Group private-only notice",
     "msg_new_task_caption": "New task notification caption",
-    "msg_help": "Help menu text",
-    "msg_my_claims_empty": "My Claims (empty)",
-    "msg_my_claims_header": "My Claims list",
-    "msg_history_empty": "History (empty)",
-    "msg_history_header": "History list",
-    "msg_withdraw_amount": "Withdraw amount prompt",
-    "msg_withdraw_submitted": "Withdrawal requested",
-    "msg_withdraw_paid": "Withdrawal paid (user)",
-    "msg_withdraw_rejected": "Withdrawal rejected (user)",
-    "msg_support_sent": "Support message sent",
-    "msg_support_cancelled": "Support cancelled",
-    "msg_qr_expired": "QR expired",
-    "msg_qr_invalid": "QR invalid",
-    "msg_qr_not_available": "QR not available",
-    "msg_claim_reserved": "Claim reserved (after CLAIM)",
-    "msg_user_banned": "User banned notice",
-    "msg_maintenance": "Maintenance mode",
-    "msg_payout_choose": "Choose payout method",
-    "msg_payout_details_prompt": "Enter payout details",
-
 }
 
 
