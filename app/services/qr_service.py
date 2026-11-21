@@ -126,6 +126,57 @@ async def mark_qr_posted(
     return qr
 
 
+
+async def reserve_qr_atomic(
+    session: AsyncSession,
+    *,
+    code: str,
+    user_id: int,
+) -> QRCode:
+    """
+    Lock QR to a user on CLAIM button press (before submit).
+    Other users immediately see already-claimed; no QR image for them.
+    """
+    result = await session.execute(
+        select(QRCode)
+        .where(QRCode.code == code.upper().strip())
+        .with_for_update()
+    )
+    qr = result.scalar_one_or_none()
+    if qr is None:
+        raise ValueError("QR_NOT_FOUND")
+
+    now = datetime.now(timezone.utc)
+
+    if qr.expires_at and qr.expires_at < now:
+        qr.status = QRStatus.EXPIRED
+        await session.flush()
+        raise ValueError("QR_EXPIRED")
+
+    # Already locked / finished
+    if qr.status in (QRStatus.CLAIMED, QRStatus.APPROVED, QRStatus.REJECTED):
+        if qr.claimed_by_user_id == user_id:
+            return qr  # same user can re-open their QR
+        raise ValueError("QR_ALREADY_CLAIMED")
+
+    if qr.status == QRStatus.PENDING:
+        if qr.claimed_by_user_id == user_id:
+            return qr  # same user
+        raise ValueError("QR_ALREADY_CLAIMED")
+
+    if qr.status in (QRStatus.DISABLED, QRStatus.EXPIRED):
+        raise ValueError(f"QR_{qr.status.value}")
+
+    if qr.status not in (QRStatus.AVAILABLE, QRStatus.POSTED, QRStatus.RECLAIMED):
+        raise ValueError(f"QR_INVALID_STATUS_{qr.status.value}")
+
+    qr.status = QRStatus.PENDING
+    qr.claimed_by_user_id = user_id
+    qr.claimed_at = now
+    await session.flush()
+    return qr
+
+
 async def claim_qr_atomic(
     session: AsyncSession,
     *,
@@ -149,12 +200,16 @@ async def claim_qr_atomic(
 
     now = datetime.now(timezone.utc)
 
-    # Status checks
-    if qr.status in (QRStatus.CLAIMED, QRStatus.PENDING, QRStatus.APPROVED):
+    # Status checks — allow submit if this user already reserved (PENDING)
+    if qr.status in (QRStatus.CLAIMED, QRStatus.APPROVED):
         raise ValueError("QR_ALREADY_CLAIMED")
-    if qr.status in (QRStatus.DISABLED, QRStatus.REJECTED, QRStatus.EXPIRED):
+    if qr.status == QRStatus.PENDING:
+        if qr.claimed_by_user_id != user_id:
+            raise ValueError("QR_ALREADY_CLAIMED")
+        # same user completing submit after reserve
+    elif qr.status in (QRStatus.DISABLED, QRStatus.REJECTED, QRStatus.EXPIRED):
         raise ValueError(f"QR_{qr.status.value}")
-    if qr.status not in (QRStatus.AVAILABLE, QRStatus.POSTED, QRStatus.RECLAIMED):
+    elif qr.status not in (QRStatus.AVAILABLE, QRStatus.POSTED, QRStatus.RECLAIMED):
         raise ValueError(f"QR_INVALID_STATUS_{qr.status.value}")
 
     # Expiry
@@ -163,11 +218,12 @@ async def claim_qr_atomic(
         await session.flush()
         raise ValueError("QR_EXPIRED")
 
-    # Check no existing claim (unique constraint also protects)
-    existing_claim = await session.execute(
-        select(QRClaim).where(QRClaim.qr_code_id == qr.id)
-    )
-    if existing_claim.scalar_one_or_none():
+    existing_claim = (
+        await session.execute(select(QRClaim).where(QRClaim.qr_code_id == qr.id))
+    ).scalar_one_or_none()
+    if existing_claim is not None:
+        if existing_claim.user_id == user_id:
+            return existing_claim, qr
         raise ValueError("QR_ALREADY_CLAIMED")
 
     # Create claim

@@ -1690,6 +1690,7 @@ async def list_bot_buttons(
         items.append({
             "key": key,
             "label": btn_cfg.BUTTON_LABELS_HUMAN.get(key, key),
+            "category": getattr(btn_cfg, "BUTTON_CATEGORIES", {}).get(key, "Other"),
             "text": meta.get("text") or key,
             "style": meta.get("style") or "primary",
             "icon": meta.get("icon") or None,

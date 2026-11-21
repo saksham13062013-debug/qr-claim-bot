@@ -152,10 +152,10 @@ async def reject_claim(
     claim.rejected_at = now
     claim.rejection_reason = reason[:500]
 
-    if qr and qr.status in (QRStatus.PENDING, QRStatus.POSTED):
-        qr.status = QRStatus.AVAILABLE
-        qr.claimed_by_user_id = None
-        qr.claimed_at = None
+    # Keep QR locked after reject — other users must NOT get it again
+    if qr:
+        qr.status = QRStatus.REJECTED
+        # keep claimed_by_user_id so history shows who held it
 
     await session.flush()
     await write_audit(

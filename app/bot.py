@@ -236,7 +236,7 @@ def nav_kb(cfg: dict | None = None) -> InlineKeyboardMarkup:
             ],
             [
                 _ik_btn(c, "help", callback_data="menu:help"),
-                InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
+                _ik_btn(c, "home", callback_data="menu:home"),
             ],
         ]
     )
@@ -285,26 +285,22 @@ def claim_flow_kb(code: str, payment_link: str | None = None, cfg: dict | None =
     c = _cfg(cfg)
     rows = []
     if payment_link:
-        rows.append([
-            InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")
-        ])
+        rows.append([_ik_btn(c, "open_link", url=payment_link)])
     rows.append([
         _ik_btn(c, "submit_claim", callback_data=f"submit_claim:{code}"),
     ])
     rows.append([
         _ik_btn(c, "cancel", callback_data="cancel_claim"),
-        InlineKeyboardButton(text="Home", callback_data="menu:home", style="primary", icon_custom_emoji_id="5807868868886009920"),
+        _ik_btn(c, "home", callback_data="menu:home"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def notify_claim_kb(code: str, payment_link: str | None = None, cfg: dict | None = None) -> InlineKeyboardMarkup:
+    """Public notify: only CLAIM — no link/QR until user wins the claim race."""
     from app.services import button_config as btn_cfg
     c = _cfg(cfg)
-    rows = []
-    if payment_link:
-        rows.append([InlineKeyboardButton(text="Open Link", url=payment_link, style="primary", icon_custom_emoji_id="5260730055880876557")])
-    rows.append([_ik_btn(c, "claim_qr", callback_data=f"claim:{code}")])
+    rows = [[_ik_btn(c, "claim_qr", callback_data=f"claim:{code}")]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -334,11 +330,7 @@ def withdraw_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="Cancel",
-                    callback_data="payout:cancel",
-                    style="danger",  # red
-                )
+                _ik_btn(c, "cancel", callback_data="payout:cancel")
             ]
         ]
     )
@@ -495,8 +487,9 @@ async def _send_already_claimed(
                 claimer_line += f" (<a href=\"https://t.me/{uname}\">@{uname}</a>)"
             buttons.append(
                 [
-                    InlineKeyboardButton(
-                        text="👤 Open claimer profile",
+                    _ik_btn(
+                        _cfg(None),
+                        "open_claimer_profile",
                         url=f"https://t.me/{uname}",
                     )
                 ]
@@ -509,16 +502,8 @@ async def _send_already_claimed(
 
     buttons.append(
         [
-            InlineKeyboardButton(
-                text="Balance",
-                callback_data="menu:balance",
-                style="primary",
-            ),
-            InlineKeyboardButton(
-                text="Help",
-                callback_data="menu:help",
-                style="primary",
-            ),
+            _ik_btn(_cfg(None), "balance", callback_data="menu:balance"),
+            _ik_btn(_cfg(None), "help", callback_data="menu:help"),
         ]
     )
     claimer_kb = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -879,16 +864,8 @@ async def balance_cmd(event: Message | CallbackQuery, bot: Bot):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="Withdraw",
-                        callback_data="menu:withdraw",
-                        style="success",
-                    ),
-                    InlineKeyboardButton(
-                        text="History",
-                        callback_data="menu:history",
-                        style="primary",
-                    ),
+                    _ik_btn(c, "withdraw", callback_data="menu:withdraw"),
+                    _ik_btn(c, "history", callback_data="menu:history"),
                 ]
             ]
         )
@@ -971,23 +948,15 @@ async def my_claims(event: Message | CallbackQuery, bot: Bot):
 
 @router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Help", "❓ Help"}))
 async def help_cmd(message: Message, bot: Bot):
-    await message.answer(
-        "<b>Help</b>\n\n"
-        "• <b>How to Claim</b> — step-by-step guide\n"
-        "• <b>Balance</b> — wallet balance and pending funds\n"
-        "• <b>My Claims</b> — status of your reward claims\n"
-        "• <b>Withdraw</b> — request payout via UPI or Binance\n"
-        "• <b>History</b> — recent wallet transactions\n"
-        "• <b>Support</b> — message the admin team\n\n"
-        "Rewards are sent as private messages. Only one user can claim each QR.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=nav_kb(),
-    )
+    cfg = await load_btn_cfg()
+    async with get_db_context() as session:
+        text = await msg_tpl.get_template(session, "msg_help")
+    try:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=nav_kb(cfg))
+    except Exception:
+        await message.answer(text, reply_markup=nav_kb(cfg))
 
 
-# ---------------------------------------------------------------------------
-# Withdraw: amount → UPI / Binance → details
-# ---------------------------------------------------------------------------
 
 @router.message(F.chat.type == ChatType.PRIVATE, F.text.in_({"Withdraw", "💸 Withdraw"}))
 @router.callback_query(F.data == "menu:withdraw")
@@ -1178,11 +1147,7 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="Cancel",
-                        callback_data="support:cancel",
-                        style="danger",
-                    )
+                    _ik_btn(c, "cancel", callback_data="support:cancel")
                 ]
             ]
         ),
@@ -1193,7 +1158,9 @@ async def support_start(message: Message, state: FSMContext, bot: Bot):
 async def support_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer("Cancelled")
-    await callback.message.answer("Support cancelled.", reply_markup=main_menu_kb(await load_btn_cfg()))
+    async with get_db_context() as _s:
+        _t = await msg_tpl.get_template(_s, "msg_support_cancelled")
+    await callback.message.answer(_t, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb(await load_btn_cfg()))
 
 
 @router.message(SupportStates.waiting_message)
@@ -1233,7 +1200,10 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
 # Claim flow
 # ---------------------------------------------------------------------------
 
-async def _send_claim_preview(target, bot: Bot, code: str) -> None:
+async def _send_claim_preview(
+    target, bot: Bot, code: str, *, reserved: bool = False
+) -> None:
+    """Send QR image only to the user who successfully reserved the claim."""
     from app.services.qr_image_service import claim_payload, generate_qr_png_bytes
 
     code = code.upper().strip()
@@ -1243,18 +1213,36 @@ async def _send_claim_preview(target, bot: Bot, code: str) -> None:
         if not qr:
             await target.answer(f"{pe('cross')} Invalid or unknown QR code.")
             return
-        if qr.status.value in ("CLAIMED", "PENDING", "APPROVED"):
-            await _send_already_claimed(target, bot, code, session=session, qr=qr)
-            return
-        if qr.status.value in ("DISABLED", "EXPIRED", "REJECTED"):
-            await target.answer(
-                f"{pe('pause')} <b>QR not available</b>\n"
-                f"Status: <code>{qr.status.value}</code>\n\n"
-                f"This task cannot be claimed.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=nav_kb(),
-            )
-            return
+        st = qr.status.value if hasattr(qr.status, "value") else str(qr.status)
+        # reserved=True: this caller just won the lock — show QR even if PENDING
+        if not reserved:
+            if st in ("CLAIMED", "PENDING", "APPROVED", "REJECTED"):
+                await _send_already_claimed(target, bot, code, session=session, qr=qr)
+                return
+            if st in ("DISABLED", "EXPIRED"):
+                await target.answer(
+                    f"{pe('pause')} <b>QR not available</b>\n"
+                    f"Status: <code>{st}</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
+                )
+                return
+        else:
+            # Winner path after reserve
+            if st in ("DISABLED", "EXPIRED"):
+                await target.answer(
+                    f"{pe('pause')} QR not available (<code>{st}</code>).",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
+                )
+                return
+            if st == "REJECTED":
+                await target.answer(
+                    f"{pe('cross')} This claim was closed by admin.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=nav_kb(),
+                )
+                return
 
         reward = cents_to_usd(qr.reward_cents)
         app_label = (getattr(qr, "app_name", None) or "QR task").strip()
@@ -1384,46 +1372,62 @@ async def claim_callback(callback: CallbackQuery, bot: Bot):
             except Exception:
                 pass
 
-            # Block already-taken / closed QRs before any image is sent
-            qr_chk = await qr_service.get_qr_by_code(session, code)
-            if not qr_chk:
-                await finish()
-                await bot.send_message(
-                    chat_id,
-                    f"{pe('cross')} <b>Invalid QR</b>\nThis code is unknown or removed.",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=nav_kb(),
+            # Atomic reserve: first user locks QR; others get already-claimed (no image)
+            try:
+                qr_locked = await qr_service.reserve_qr_atomic(
+                    session, code=code, user_id=db_user.id
                 )
-                return
-            st = qr_chk.status.value if hasattr(qr_chk.status, "value") else str(qr_chk.status)
-            if st in ("CLAIMED", "PENDING", "APPROVED"):
+                await session.commit()
+            except ValueError as e:
+                err = str(e)
                 await finish()
-                try:
-                    from app.services.activity_log import log_claim
-                    await log_claim(
-                        "CLAIM_ALREADY_TAKEN",
-                        telegram_id=user.id,
-                        username=user.username,
-                        code=code,
-                        bot=bot,
+                if err == "QR_ALREADY_CLAIMED":
+                    try:
+                        from app.services.activity_log import log_claim
+                        await log_claim(
+                            "CLAIM_ALREADY_TAKEN",
+                            telegram_id=user.id,
+                            username=user.username,
+                            code=code,
+                            bot=bot,
+                        )
+                    except Exception:
+                        pass
+                    target = callback.message or callback
+                    await _send_already_claimed(target, bot, code, session=None, qr=None)
+                    return
+                if err == "QR_EXPIRED":
+                    await bot.send_message(
+                        chat_id,
                     )
-                except Exception:
-                    pass
-                target = callback.message or callback
-                await _send_already_claimed(target, bot, code, session=session, qr=qr_chk)
-                return
-            if st in ("DISABLED", "EXPIRED", "REJECTED"):
-                await finish()
+                    return
+                if err == "QR_NOT_FOUND":
+                    await bot.send_message(
+                        chat_id, f"{pe('cross')} Invalid or unknown QR code."
+                    )
+                    return
                 await bot.send_message(
                     chat_id,
-                    f"{pe('pause')} <b>QR not available</b>\nStatus: <code>{st}</code>",
+                    f"{pe('pause')} <b>QR not available</b>\n<code>{err}</code>",
                     parse_mode=ParseMode.HTML,
                     reply_markup=nav_kb(),
                 )
                 return
+            try:
+                from app.services.activity_log import log_claim
+                await log_claim(
+                    "CLAIM_RESERVED",
+                    telegram_id=user.id,
+                    username=user.username,
+                    code=code,
+                    reward=f"${(qr_locked.reward_cents or 0)/100:.2f}",
+                    bot=bot,
+                )
+            except Exception:
+                pass
         await finish()
         target = callback.message or callback
-        await _send_claim_preview(target, bot, code)
+        await _send_claim_preview(target, bot, code, reserved=True)
     except Exception:
         logger.exception("claim_callback failed code=%s", code)
         try:
@@ -1567,9 +1571,9 @@ async def submit_claim_callback(callback: CallbackQuery, bot: Bot):
                 elif err == "QR_NOT_FOUND":
                     await bot.send_message(chat_id, f"{pe('cross')} Invalid or unknown QR code.")
                 elif err == "QR_EXPIRED":
-                    await bot.send_message(
-                        chat_id, f"{pe('clock')} This QR has expired.", reply_markup=nav_kb()
-                    )
+                    async with get_db_context() as _s:
+                        _t = await msg_tpl.get_template(_s, "msg_qr_expired")
+                    await bot.send_message(chat_id, _t, parse_mode=ParseMode.HTML, reply_markup=nav_kb())
                 elif err.startswith("QR_"):
                     await bot.send_message(
                         chat_id,
@@ -1699,11 +1703,7 @@ async def cmd_web_admin(message: Message):
 
         mini = [
             [
-                InlineKeyboardButton(
-                    text="Open Mini App",
-                    web_app=WebAppInfo(url=login_url),
-                    style="primary",
-                )
+                _ik_btn(_cfg(None), "open_mini_app", web_app=WebAppInfo(url=login_url))
             ]
         ]
     except Exception:
@@ -1711,19 +1711,11 @@ async def cmd_web_admin(message: Message):
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="Open Admin Panel",
-                    url=admin_url,
-                    style="success",
-                )
+                _ik_btn(_cfg(None), "open_admin_panel", url=admin_url)
             ],
             *mini,
             [
-                InlineKeyboardButton(
-                    text="Login page",
-                    url=login_url,
-                    style="primary",
-                )
+                _ik_btn(_cfg(None), "login_page", url=login_url)
             ],
         ]
     )
@@ -1810,11 +1802,7 @@ async def cmd_scanner(message: Message):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="Open Scanner",
-                        url=url,
-                        style="success",
-                    )
+                    _ik_btn(_cfg(None), "open_scanner", url=url)
                 ]
             ]
         )
